@@ -4,11 +4,13 @@ A modular Python machine learning project for building a binary classification e
 
 ## Overview
 
-The project currently implements data preparation for the Breast Cancer Wisconsin Diagnostic dataset.
+The project implements data preparation for the Breast Cancer Wisconsin Diagnostic and binary Digits classification datasets.
 
 The data preparation pipeline includes dataset loading, binary target encoding, stratified development/test splitting, feature scaling, and saving prepared arrays and the fitted scaler.
 
 The Breast Cancer Wisconsin target is encoded so that benign samples are class `0` and malignant samples are class `1`. This makes malignant the positive class for later probability-based classification metrics and ensemble evaluation.
+
+The binary Digits dataset contains handwritten zeros and ones, encoded as class `0` and class `1`, respectively.
 
 ## Project Structure
 
@@ -17,6 +19,7 @@ The Breast Cancer Wisconsin target is encoded so that benign samples are class `
 `environment.py` — numerical library thread settings for improved reproducibility\
 `datasets/loader.py` — dataset dispatcher\
 `datasets/breast_cancer.py` — Breast Cancer Wisconsin Diagnostic dataset loading and target encoding\
+`datasets/digits_binary.py` — binary Digits dataset loading and filtering\
 `preprocessing.py` — stratified development/test splitting and standard feature scaling\
 `storage.py` — saving and loading prepared NumPy arrays and fitted preprocessing objects\
 `requirements.txt` — Python package dependencies
@@ -27,6 +30,7 @@ The data preparation pipeline:
 
 * loads the selected binary classification dataset
 * converts the Breast Cancer Wisconsin target to `0 = benign` and `1 = malignant`
+* filters the Digits dataset to handwritten zeros and ones
 * splits the data into development and test sets
 * preserves class proportions through stratified splitting
 * scales the original features
@@ -37,7 +41,8 @@ The data preparation pipeline:
 
 Generated data artifacts are saved locally in dataset- and split-specific subfolders:
 
-`prepared_data/breast_cancer/split_seed_<DATA_SPLIT_SEED>/`
+`prepared_data/breast_cancer/split_seed_<DATA_SPLIT_SEED>/`\
+`prepared_data/digits_binary/split_seed_<DATA_SPLIT_SEED>/`
 
 ## How to Run
 
@@ -65,9 +70,10 @@ Important data preparation settings include:
 `RANDOM_SEED` — random seed reserved for later model tuning, K-fold cross-validation, model training, and other non-split randomness\
 `PREPARED_DATA_DIR` — root output folder for prepared data
 
-The currently supported dataset is:
+The currently supported datasets are:
 
-`breast_cancer`
+`breast_cancer`\
+`digits_binary`
 
 ## Breast Cancer Wisconsin Diagnostic Dataset
 
@@ -84,13 +90,28 @@ The project therefore treats malignant as the positive class.
 
 The full feature matrix and target vector are preserved, together with the development/test split and scaled feature matrices.
 
+## Binary Digits Dataset
+
+The project uses a binary subset of the Digits classification dataset provided by scikit-learn.
+
+The subset contains 360 samples and 64 numerical input features representing flattened 8 × 8 images.
+
+Only handwritten zeros and ones are retained:
+
+`0 = digit zero`  
+`1 = digit one`
+
+The project therefore treats digit one as the positive class.
+
+The full filtered feature matrix and target vector are preserved, together with the development/test split and scaled feature matrices.
+
 ## Reproducibility
 
 The project limits hidden parallelism in numerical libraries through `environment.py`.
 
 For stricter reproducibility, `PYTHONHASHSEED` can be set before launching Python.
 
-The development/test split is controlled by `DATA_SPLIT_SEED`. Changing `DATA_SPLIT_SEED` creates a different held-out split and writes generated artifacts under `split_seed_<DATA_SPLIT_SEED>` subfolders, allowing multiple split experiments for the same dataset without overwriting previous results.
+The development/test split is controlled by `DATA_SPLIT_SEED`. Changing `DATA_SPLIT_SEED` creates a different held-out split and writes generated artifacts under `split_seed_<DATA_SPLIT_SEED>` subfolders, allowing multiple split experiments for each dataset without overwriting previous results.
 
 The split uses stratification so that the class proportions in the development and test sets remain similar to those in the full dataset.
 
@@ -116,7 +137,6 @@ It currently emphasizes:
 * reproducible data preparation
 * stratified development/test splitting
 * leakage-aware preprocessing
-* explicit positive class encoding
 * clean separation of dataset loading, preprocessing, and storage
 * a scalable structure for future model tuning, comparison, and ensemble optimization
 

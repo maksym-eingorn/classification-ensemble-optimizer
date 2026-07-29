@@ -12,7 +12,7 @@ DATA_SPLIT_SEED = 21
 
 # --- Dataset settings ---
 
-# Currently supported: "breast_cancer"
+# Currently supported: "breast_cancer", "digits_binary"
 DATASET_NAME = "breast_cancer"
 
 TEST_SIZE = 0.2
