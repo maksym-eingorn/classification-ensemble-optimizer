@@ -17,6 +17,20 @@ DATASET_NAME = "breast_cancer"
 
 TEST_SIZE = 0.2
 
+# --- XGBoost Optuna tuning ---
+
+# Supported feature set: "original"
+XGBOOST_FEATURE_SET = "original"
+
+XGBOOST_N_TRIALS = 1000
+XGBOOST_N_JOBS = 1
+XGBOOST_N_SPLITS = 5
+XGBOOST_N_ESTIMATORS_MIN = 100
+XGBOOST_N_ESTIMATORS_MAX = 1000
+XGBOOST_N_ESTIMATORS_STEP = 50
+XGBOOST_VERBOSE = True
+
 # --- Output paths ---
 
 PREPARED_DATA_DIR = "prepared_data"
+OPTUNA_RESULTS_DIR = "optuna_results"

@@ -4,7 +4,7 @@ A modular Python machine learning project for building a binary classification e
 
 ## Overview
 
-The project implements data preparation for the Breast Cancer Wisconsin Diagnostic and binary Digits classification datasets.
+The project implements data preparation for the Breast Cancer Wisconsin Diagnostic and binary Digits classification datasets, along with XGBoost hyperparameter tuning using Optuna.
 
 The data preparation pipeline includes dataset loading, binary target encoding, stratified development/test splitting, feature scaling, and saving prepared arrays and the fitted scaler.
 
@@ -12,9 +12,12 @@ The Breast Cancer Wisconsin target is encoded so that benign samples are class `
 
 The binary Digits dataset contains handwritten zeros and ones, encoded as class `0` and class `1`, respectively.
 
+The XGBoost tuning workflow loads prepared development data, selects the configured original feature set, runs Optuna with stratified K-fold cross-validation, stores out-of-fold positive-class probabilities for future ensemble search, and saves tuning results locally.
+
 ## Project Structure
 
 `main.py` — data preparation pipeline\
+`run_xgboost_optuna.py` — XGBoost Optuna tuning workflow\
 `config.py` — project settings and user-configurable parameters\
 `environment.py` — numerical library thread settings for improved reproducibility\
 `datasets/loader.py` — dataset dispatcher\
@@ -22,6 +25,10 @@ The binary Digits dataset contains handwritten zeros and ones, encoded as class 
 `datasets/digits_binary.py` — binary Digits dataset loading and filtering\
 `preprocessing.py` — stratified development/test splitting and standard feature scaling\
 `storage.py` — saving and loading prepared NumPy arrays and fitted preprocessing objects\
+`tuning/feature_sets.py` — feature set selection for tuning workflows\
+`tuning/validation.py` — shared validation helpers for tuning inputs\
+`tuning/result_storage.py` — saving and loading Optuna result artifacts\
+`tuning/xgboost_optuna.py` — XGBoost Optuna tuning logic\
 `requirements.txt` — Python package dependencies
 
 ## How It Works
@@ -44,9 +51,28 @@ Generated data artifacts are saved locally in dataset- and split-specific subfol
 `prepared_data/breast_cancer/split_seed_<DATA_SPLIT_SEED>/`\
 `prepared_data/digits_binary/split_seed_<DATA_SPLIT_SEED>/`
 
+The XGBoost Optuna tuning workflow:
+
+* loads prepared data for the selected dataset
+* chooses the configured original feature set
+* runs XGBoost hyperparameter tuning with Optuna
+* uses stratified K-fold cross-validation on the development set
+* computes full out-of-fold and per-fold Brier scores
+* stores one out-of-fold positive-class probability column per Optuna trial
+* saves the completed Optuna study, trial numbers, out-of-fold probabilities, Brier scores, and hyperparameters
+
+Generated Optuna artifacts are saved locally in dataset-, split-, feature-set-, and model-specific subfolders:
+
+`optuna_results/breast_cancer/split_seed_<DATA_SPLIT_SEED>/original/xgboost/`\
+`optuna_results/digits_binary/split_seed_<DATA_SPLIT_SEED>/original/xgboost/`
+
 ## How to Run
 
 This project is configured for Python 3.14.
+
+On macOS, XGBoost requires the OpenMP runtime. If Homebrew is available, install it with:
+
+`brew install libomp`
 
 Install dependencies from the project directory with:
 
@@ -58,6 +84,12 @@ Then run:
 
 The script prepares the selected dataset and saves processed outputs into the corresponding dataset- and split-specific subfolder within `prepared_data/`.
 
+Next, run XGBoost Optuna tuning:
+
+`python run_xgboost_optuna.py`
+
+The XGBoost tuning script loads the prepared development data, runs Optuna-based XGBoost tuning with stratified K-fold cross-validation, and saves results into the corresponding dataset-, split-, feature-set-, and model-specific subfolder within `optuna_results/`.
+
 ## Configuration
 
 Main user-facing settings are stored in `config.py`.
@@ -67,13 +99,30 @@ Important data preparation settings include:
 `DATASET_NAME` — selected dataset name\
 `TEST_SIZE` — test set fraction\
 `DATA_SPLIT_SEED` — random seed used only for the development/test split; it also determines the split-specific output subfolder name\
-`RANDOM_SEED` — random seed reserved for later model tuning, K-fold cross-validation, model training, and other non-split randomness\
 `PREPARED_DATA_DIR` — root output folder for prepared data
+
+Important XGBoost Optuna settings are:
+
+`RANDOM_SEED` — random seed used by the Optuna sampler, stratified K-fold splitting, and XGBoost models\
+`XGBOOST_FEATURE_SET` — selected feature set for XGBoost tuning\
+`XGBOOST_N_TRIALS` — number of Optuna trials\
+`XGBOOST_N_JOBS` — number of parallel Optuna workers\
+`XGBOOST_N_SPLITS` — number of stratified K-fold cross-validation splits\
+`XGBOOST_N_ESTIMATORS_MIN` — minimum number of XGBoost estimators considered by Optuna\
+`XGBOOST_N_ESTIMATORS_MAX` — maximum number of XGBoost estimators considered by Optuna\
+`XGBOOST_N_ESTIMATORS_STEP` — step size for the Optuna search over estimators\
+`XGBOOST_VERBOSE` — whether to print trial-level Brier scores
+
+`OPTUNA_RESULTS_DIR` represents the root output folder for Optuna result artifacts.
 
 The currently supported datasets are:
 
 `breast_cancer`\
 `digits_binary`
+
+The currently supported XGBoost feature set is:
+
+`original`
 
 ## Breast Cancer Wisconsin Diagnostic Dataset
 
@@ -105,6 +154,20 @@ The project therefore treats digit one as the positive class.
 
 The full filtered feature matrix and target vector are preserved, together with the development/test split and scaled feature matrices.
 
+## XGBoost Optuna Tuning
+
+The XGBoost tuning workflow uses Optuna to search over XGBoost hyperparameters.
+
+XGBoost tuning currently uses the original feature matrix. Scaled original features remain available in the prepared data for future scale-sensitive models but are not supported by the XGBoost tuning workflow.
+
+Each Optuna trial trains one XGBoost configuration across all stratified K folds and produces one full out-of-fold positive-class probability vector for the development set.
+
+The full out-of-fold Brier score is minimized by Optuna. Per-fold Brier scores are also retained for each trial.
+
+The final out-of-fold probability matrix has one column per trial and is saved for future ensemble search.
+
+The test set is not used during Optuna tuning.
+
 ## Reproducibility
 
 The project limits hidden parallelism in numerical libraries through `environment.py`.
@@ -115,7 +178,9 @@ The development/test split is controlled by `DATA_SPLIT_SEED`. Changing `DATA_SP
 
 The split uses stratification so that the class proportions in the development and test sets remain similar to those in the full dataset.
 
-`RANDOM_SEED` is defined separately so that later model and tuning randomness can remain fixed while the development/test split is varied independently.
+`RANDOM_SEED` is defined separately so that Optuna sampling, stratified K-fold splitting, and XGBoost randomness can remain fixed while the development/test split is varied independently.
+
+XGBoost tuning uses a seeded Optuna sampler, seeded stratified K-fold splitting, and seeded XGBoost models. `XGBOOST_N_JOBS = 1` keeps Optuna trial execution sequential by default for improved reproducibility.
 
 ## Generated Files
 
@@ -123,7 +188,9 @@ The pipeline may generate files such as:
 
 * `.npy` prepared arrays
 * `.pkl` fitted preprocessing objects
+* `.pkl` Optuna studies and result artifacts
 * the `prepared_data/` directory
+* the `optuna_results/` directory
 
 These files are ignored by Git because they are generated artifacts rather than source code.
 
@@ -137,8 +204,11 @@ It currently emphasizes:
 * reproducible data preparation
 * stratified development/test splitting
 * leakage-aware preprocessing
-* clean separation of dataset loading, preprocessing, and storage
-* a scalable structure for future model tuning, comparison, and ensemble optimization
+* Optuna-based XGBoost hyperparameter tuning
+* stratified K-fold out-of-fold probability generation
+* Brier-score optimization
+* clean separation of dataset loading, preprocessing, tuning, and storage
+* a scalable structure for future model comparison and ensemble optimization
 
 ## License
 
