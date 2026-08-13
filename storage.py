@@ -31,9 +31,10 @@ def validate_data_split_seed(data_split_seed: int) -> None:
         isinstance(data_split_seed, bool)
         or not isinstance(data_split_seed, int)
         or data_split_seed < 0
+        or data_split_seed > 2**32 - 1
     ):
         raise ValueError(
-            "data_split_seed must be a non-negative integer, "
+            "data_split_seed must be an integer between 0 and 2**32 - 1, "
             f"got {data_split_seed}."
         )
 

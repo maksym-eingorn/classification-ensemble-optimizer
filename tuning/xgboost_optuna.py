@@ -110,6 +110,7 @@ def run_optuna_kfold_xgboost(
     if not isinstance(verbose, bool):
         raise ValueError(f"verbose must be a boolean, got {verbose}.")
 
+    # noinspection PyTypeChecker
     sampler = optuna.samplers.TPESampler(seed=seed)
     study = optuna.create_study(direction="minimize", sampler=sampler)
 

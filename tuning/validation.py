@@ -58,6 +58,18 @@ def validate_feature_target_arrays(
     return X, y
 
 
+def validate_binary_target(y: np.ndarray, name: str) -> None:
+    """Validate that a target contains exactly the binary classes 0 and 1."""
+    classes = np.unique(y)
+    expected_classes = np.array([0, 1])
+
+    if not np.array_equal(classes, expected_classes):
+        raise ValueError(
+            f"{name} must contain exactly the binary classes 0 and 1, "
+            f"got {classes.tolist()}."
+        )
+
+
 def validate_binary_classification_inputs(
     X_dev, y_dev
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -70,14 +82,7 @@ def validate_binary_classification_inputs(
         sample_label="n_samples_dev"
     )
 
-    classes = np.unique(y_dev)
-    expected_classes = np.array([0, 1])
-
-    if not np.array_equal(classes, expected_classes):
-        raise ValueError(
-            "y_dev must contain exactly the binary classes 0 and 1, "
-            f"got {classes.tolist()}."
-        )
+    validate_binary_target(y_dev, "y_dev")
 
     return X_dev, y_dev
 

@@ -9,23 +9,16 @@ configure_environment()
 
 import config
 from storage import get_dataset_output_dir, load_prepared_data
-from tuning.feature_sets import get_development_data
+from tuning.feature_sets import (
+    get_development_data, validate_xgboost_feature_set
+)
 from tuning.result_storage import get_optuna_result_dir, save_optuna_results
 from tuning.xgboost_optuna import run_optuna_kfold_xgboost
 
 
-def _validate_xgboost_feature_set(feature_set: str) -> None:
-    """Validate the feature set supported by XGBoost tuning."""
-    if feature_set != "original":
-        raise ValueError(
-            f"Unsupported XGBoost feature set: {feature_set}. "
-            "Currently supported: original."
-        )
-
-
 def main() -> None:
     """Run XGBoost Optuna tuning on the selected prepared dataset."""
-    _validate_xgboost_feature_set(config.XGBOOST_FEATURE_SET)
+    validate_xgboost_feature_set(config.XGBOOST_FEATURE_SET)
 
     prepared_data_dir = get_dataset_output_dir(
         config.PREPARED_DATA_DIR, config.DATASET_NAME, config.DATA_SPLIT_SEED

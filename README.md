@@ -4,20 +4,21 @@ A modular Python machine learning project for building a binary classification e
 
 ## Overview
 
-The project implements data preparation for the Breast Cancer Wisconsin Diagnostic and binary Digits classification datasets, along with XGBoost hyperparameter tuning using Optuna.
+The project implements data preparation for the Breast Cancer Wisconsin Diagnostic and binary Digits classification datasets, XGBoost hyperparameter tuning using Optuna, and final XGBoost evaluation on the held-out test set.
 
 The data preparation pipeline includes dataset loading, binary target encoding, stratified development/test splitting, feature scaling, and saving prepared arrays and the fitted scaler.
 
-The Breast Cancer Wisconsin target is encoded so that benign samples are class `0` and malignant samples are class `1`. This makes malignant the positive class for later probability-based classification metrics and ensemble evaluation.
+The Breast Cancer Wisconsin target is encoded so that benign samples are class `0` and malignant samples are class `1`. This makes malignant the positive class for probability-based classification metrics and future ensemble evaluation.
 
 The binary Digits dataset contains handwritten zeros and ones, encoded as class `0` and class `1`, respectively.
 
-The XGBoost tuning workflow loads prepared development data, selects the configured original feature set, runs Optuna with stratified K-fold cross-validation, stores out-of-fold positive-class probabilities for future ensemble search, and saves tuning results locally.
+The XGBoost workflow loads prepared development data, selects the configured original feature set, runs Optuna with stratified K-fold cross-validation, stores out-of-fold positive-class probabilities for future ensemble search, saves tuning results locally, and evaluates the best tuned model on the held-out test set.
 
 ## Project Structure
 
 `main.py` — data preparation pipeline\
 `run_xgboost_optuna.py` — XGBoost Optuna tuning workflow\
+`evaluate_xgboost.py` — XGBoost evaluation on the test set\
 `config.py` — project settings and user-configurable parameters\
 `environment.py` — numerical library thread settings for improved reproducibility\
 `datasets/loader.py` — dataset dispatcher\
@@ -25,8 +26,10 @@ The XGBoost tuning workflow loads prepared development data, selects the configu
 `datasets/digits_binary.py` — binary Digits dataset loading and filtering\
 `preprocessing.py` — stratified development/test splitting and standard feature scaling\
 `storage.py` — saving and loading prepared NumPy arrays and fitted preprocessing objects\
-`tuning/feature_sets.py` — feature set selection for tuning workflows\
-`tuning/validation.py` — shared validation helpers for tuning inputs\
+`evaluation/validation.py` — validation helpers for final model evaluation\
+`evaluation/xgboost_evaluation.py` — XGBoost retraining on the full development set and evaluation on the test set\
+`tuning/feature_sets.py` — feature set selection for tuning and evaluation workflows\
+`tuning/validation.py` — shared validation helpers for feature and target arrays\
 `tuning/result_storage.py` — saving and loading Optuna result artifacts\
 `tuning/xgboost_optuna.py` — XGBoost Optuna tuning logic\
 `requirements.txt` — Python package dependencies
@@ -66,6 +69,15 @@ Generated Optuna artifacts are saved locally in dataset-, split-, feature-set-, 
 `optuna_results/breast_cancer/split_seed_<DATA_SPLIT_SEED>/original/xgboost/`\
 `optuna_results/digits_binary/split_seed_<DATA_SPLIT_SEED>/original/xgboost/`
 
+The XGBoost test evaluation workflow:
+
+* loads the prepared development and test data for the selected dataset
+* chooses the same configured original feature set used during XGBoost tuning
+* loads the saved Optuna study
+* retrains the best XGBoost model on the full development set
+* evaluates the retrained model on the held-out test set
+* prints the final test Brier score, log loss, ROC AUC, and accuracy
+
 ## How to Run
 
 This project is configured for Python 3.14.
@@ -90,6 +102,12 @@ Next, run XGBoost Optuna tuning:
 
 The XGBoost tuning script loads the prepared development data, runs Optuna-based XGBoost tuning with stratified K-fold cross-validation, and saves results into the corresponding dataset-, split-, feature-set-, and model-specific subfolder within `optuna_results/`.
 
+Finally, evaluate the best tuned XGBoost model on the test set:
+
+`python evaluate_xgboost.py`
+
+The evaluation script loads the saved Optuna study, retrains the best XGBoost model on the full development set, evaluates it on the held-out test set, and prints the test Brier score, log loss, ROC AUC, and accuracy.
+
 ## Configuration
 
 Main user-facing settings are stored in `config.py`.
@@ -103,8 +121,8 @@ Important data preparation settings include:
 
 Important XGBoost Optuna settings are:
 
-`RANDOM_SEED` — random seed used by the Optuna sampler, stratified K-fold splitting, and XGBoost models\
-`XGBOOST_FEATURE_SET` — selected feature set for XGBoost tuning\
+`RANDOM_SEED` — random seed used by the Optuna sampler, stratified K-fold splitting, and XGBoost models, including final retraining\
+`XGBOOST_FEATURE_SET` — selected feature set for XGBoost tuning and evaluation\
 `XGBOOST_N_TRIALS` — number of Optuna trials\
 `XGBOOST_N_JOBS` — number of parallel Optuna workers\
 `XGBOOST_N_SPLITS` — number of stratified K-fold cross-validation splits\
@@ -166,7 +184,17 @@ The full out-of-fold Brier score is minimized by Optuna. Per-fold Brier scores a
 
 The final out-of-fold probability matrix has one column per trial and is saved for future ensemble search.
 
-The test set is not used during Optuna tuning.
+The test set is not used during Optuna tuning. After tuning is complete, the best saved XGBoost configuration can be retrained on the full development set and evaluated once on the held-out test set.
+
+## XGBoost Test Evaluation
+
+The XGBoost test evaluation workflow loads the saved Optuna study for the configured dataset, development/test split, and feature set.
+
+The best XGBoost hyperparameters from the Optuna study are used to retrain a final model on the full development set.
+
+The retrained model is then evaluated on the held-out test set. The workflow prints the test Brier score, log loss, ROC AUC, and accuracy. Accuracy uses a positive-class probability threshold of 0.5.
+
+This keeps the test set separate from hyperparameter tuning and reserves test-set performance measurement for final model evaluation.
 
 ## Reproducibility
 
@@ -180,7 +208,7 @@ The split uses stratification so that the class proportions in the development a
 
 `RANDOM_SEED` is defined separately so that Optuna sampling, stratified K-fold splitting, and XGBoost randomness can remain fixed while the development/test split is varied independently.
 
-XGBoost tuning uses a seeded Optuna sampler, seeded stratified K-fold splitting, and seeded XGBoost models. `XGBOOST_N_JOBS = 1` keeps Optuna trial execution sequential by default for improved reproducibility.
+XGBoost tuning uses a seeded Optuna sampler, seeded stratified K-fold splitting, and seeded XGBoost models. Final XGBoost retraining also uses `RANDOM_SEED`. `XGBOOST_N_JOBS = 1` keeps Optuna trial execution sequential by default for improved reproducibility.
 
 ## Generated Files
 
@@ -207,7 +235,8 @@ It currently emphasizes:
 * Optuna-based XGBoost hyperparameter tuning
 * stratified K-fold out-of-fold probability generation
 * Brier-score optimization
-* clean separation of dataset loading, preprocessing, tuning, and storage
+* final evaluation on the held-out test set
+* clean separation of dataset loading, preprocessing, tuning, evaluation, and storage
 * a scalable structure for future model comparison and ensemble optimization
 
 ## License

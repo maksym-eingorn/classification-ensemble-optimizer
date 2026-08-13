@@ -32,6 +32,15 @@ def validate_feature_set(feature_set: str) -> None:
         )
 
 
+def validate_xgboost_feature_set(feature_set: str) -> None:
+    """Validate the feature set supported by XGBoost workflows."""
+    if feature_set != "original":
+        raise ValueError(
+            f"Unsupported XGBoost feature set: {feature_set}. "
+            "Currently supported: original."
+        )
+
+
 def _get_array_by_key(
     arrays: dict[str, np.ndarray], key: str
 ) -> np.ndarray:
