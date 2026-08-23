@@ -3,3 +3,4 @@ scikit-learn==1.9.0
 joblib==1.5.3
 optuna==4.9.0
 xgboost==3.3.0
+lightgbm==4.7.0

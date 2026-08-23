@@ -40,6 +40,13 @@ def validate_xgboost_feature_set(feature_set: str) -> None:
             "Currently supported: original."
         )
 
+def validate_lightgbm_feature_set(feature_set: str) -> None:
+    """Validate the feature set supported by LightGBM workflows."""
+    if feature_set != "original":
+        raise ValueError(
+            f"Unsupported LightGBM feature set: {feature_set}. "
+            "Currently supported: original."
+        )
 
 def _get_array_by_key(
     arrays: dict[str, np.ndarray], key: str
