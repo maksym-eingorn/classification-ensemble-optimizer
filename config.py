@@ -43,6 +43,19 @@ LIGHTGBM_N_ESTIMATORS_MAX = 1000
 LIGHTGBM_N_ESTIMATORS_STEP = 50
 LIGHTGBM_VERBOSE = True
 
+# --- Logistic Regression Optuna tuning ---
+
+# Supported feature set: "original"
+# Standardization is fitted separately within each CV training fold.
+LOGISTIC_REGRESSION_FEATURE_SET = "original"
+
+LOGISTIC_REGRESSION_N_TRIALS = 100
+LOGISTIC_REGRESSION_N_JOBS = 1
+LOGISTIC_REGRESSION_N_SPLITS = 5
+LOGISTIC_REGRESSION_MAX_ITER = 20000
+LOGISTIC_REGRESSION_TOL = 1e-4
+LOGISTIC_REGRESSION_VERBOSE = True
+
 # --- Output paths ---
 
 PREPARED_DATA_DIR = "prepared_data"

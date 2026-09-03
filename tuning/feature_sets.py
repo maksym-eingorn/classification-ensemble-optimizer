@@ -48,6 +48,14 @@ def validate_lightgbm_feature_set(feature_set: str) -> None:
             "Currently supported: original."
         )
 
+def validate_logistic_regression_feature_set(feature_set: str) -> None:
+    """Validate the feature set supported by Logistic Regression workflows."""
+    if feature_set != "original":
+        raise ValueError(
+            f"Unsupported Logistic Regression feature set: {feature_set}. "
+            "Currently supported: original."
+        )
+
 def _get_array_by_key(
     arrays: dict[str, np.ndarray], key: str
 ) -> np.ndarray:
