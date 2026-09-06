@@ -4,7 +4,7 @@ A modular Python machine learning project for building a binary classification e
 
 ## Overview
 
-The project implements data preparation for the Breast Cancer Wisconsin Diagnostic and binary Digits classification datasets, XGBoost and LightGBM hyperparameter tuning using Optuna, and final XGBoost and LightGBM evaluation on the held-out test set.
+The project implements data preparation for the Breast Cancer Wisconsin Diagnostic and binary Digits classification datasets, XGBoost, LightGBM, and Logistic Regression hyperparameter tuning using Optuna, and final XGBoost, LightGBM, and Logistic Regression evaluation on the held-out test set.
 
 The data preparation pipeline includes dataset loading, binary target encoding, stratified development/test splitting, feature scaling, and saving prepared arrays and the fitted scaler.
 
@@ -12,15 +12,17 @@ The Breast Cancer Wisconsin target is encoded so that benign samples are class `
 
 The binary Digits dataset contains handwritten zeros and ones, encoded as class `0` and class `1`, respectively.
 
-The XGBoost and LightGBM workflows load prepared development data, select the configured original feature set, run Optuna with stratified K-fold cross-validation, store out-of-fold positive-class probabilities for future ensemble search, save tuning results locally, and evaluate the best tuned models on the held-out test set.
+The XGBoost, LightGBM, and Logistic Regression workflows load prepared development data, select the configured original feature set, run Optuna with stratified K-fold cross-validation, store out-of-fold positive-class probabilities for future ensemble search, save tuning results locally, and evaluate the best tuned models on the held-out test set.
 
 ## Project Structure
 
 `main.py` — data preparation pipeline\
 `run_xgboost_optuna.py` — XGBoost Optuna tuning workflow\
 `run_lightgbm_optuna.py` — LightGBM Optuna tuning workflow\
+`run_logistic_regression_optuna.py` — Logistic Regression Optuna tuning workflow\
 `evaluate_xgboost.py` — XGBoost evaluation on the test set\
 `evaluate_lightgbm.py` — LightGBM evaluation on the test set\
+`evaluate_logistic_regression.py` — Logistic Regression evaluation on the test set\
 `config.py` — project settings and user-configurable parameters\
 `environment.py` — numerical library thread settings for improved reproducibility\
 `datasets/loader.py` — dataset dispatcher\
@@ -31,11 +33,13 @@ The XGBoost and LightGBM workflows load prepared development data, select the co
 `evaluation/validation.py` — validation helpers for final model evaluation\
 `evaluation/xgboost_evaluation.py` — XGBoost retraining on the full development set and evaluation on the test set\
 `evaluation/lightgbm_evaluation.py` — LightGBM retraining on the full development set and evaluation on the test set\
+`evaluation/logistic_regression_evaluation.py` — Logistic Regression retraining on the full development set and evaluation on the test set\
 `tuning/feature_sets.py` — feature set selection for tuning and evaluation workflows\
 `tuning/validation.py` — shared validation helpers for feature and target arrays\
 `tuning/result_storage.py` — saving and loading Optuna result artifacts\
 `tuning/xgboost_optuna.py` — XGBoost Optuna tuning logic\
 `tuning/lightgbm_optuna.py` — LightGBM Optuna tuning logic\
+`tuning/logistic_regression_optuna.py` — Logistic Regression Optuna tuning logic\
 `requirements.txt` — Python package dependencies
 
 ## How It Works
@@ -58,12 +62,13 @@ Generated data artifacts are saved locally in dataset- and split-specific subfol
 `prepared_data/breast_cancer/split_seed_<DATA_SPLIT_SEED>/`\
 `prepared_data/digits_binary/split_seed_<DATA_SPLIT_SEED>/`
 
-The XGBoost and LightGBM Optuna tuning workflows:
+The XGBoost, LightGBM, and Logistic Regression Optuna tuning workflows:
 
 * load prepared data for the selected dataset
 * choose the configured original feature set
 * run model-specific hyperparameter tuning with Optuna
 * use stratified K-fold cross-validation on the development set
+* standardize Logistic Regression features separately within each cross-validation training fold and apply the fitted scaler to the corresponding validation fold
 * compute full out-of-fold and per-fold Brier scores
 * store one out-of-fold positive-class probability column per Optuna trial
 * save the completed Optuna study, trial numbers, out-of-fold probabilities, Brier scores, and hyperparameters
@@ -72,14 +77,17 @@ Generated Optuna artifacts are saved locally in dataset-, split-, feature-set-, 
 
 `optuna_results/breast_cancer/split_seed_<DATA_SPLIT_SEED>/original/xgboost/`\
 `optuna_results/breast_cancer/split_seed_<DATA_SPLIT_SEED>/original/lightgbm/`\
+`optuna_results/breast_cancer/split_seed_<DATA_SPLIT_SEED>/original/logistic_regression/`\
 `optuna_results/digits_binary/split_seed_<DATA_SPLIT_SEED>/original/xgboost/`\
-`optuna_results/digits_binary/split_seed_<DATA_SPLIT_SEED>/original/lightgbm/`
+`optuna_results/digits_binary/split_seed_<DATA_SPLIT_SEED>/original/lightgbm/`\
+`optuna_results/digits_binary/split_seed_<DATA_SPLIT_SEED>/original/logistic_regression/`
 
-The XGBoost and LightGBM test evaluation workflows:
+The XGBoost, LightGBM, and Logistic Regression test evaluation workflows:
 
 * load the prepared development and test data for the selected dataset
 * choose the same configured original feature set used during tuning
-* load the saved Optuna study
+* load the saved model-specific Optuna study
+* for Logistic Regression, fit a `StandardScaler` on the full development feature matrix and apply it to both the development and test feature matrices before final model retraining and evaluation
 * retrain the best model on the full development set
 * evaluate the retrained model on the held-out test set
 * print the final test Brier score, log loss, ROC AUC, and accuracy
@@ -106,13 +114,15 @@ Next, run XGBoost Optuna tuning:
 
 `python run_xgboost_optuna.py`
 
-The XGBoost tuning script loads the prepared development data, runs Optuna-based XGBoost tuning with stratified K-fold cross-validation, and saves results into the corresponding dataset-, split-, feature-set-, and model-specific subfolder within `optuna_results/`.
-
 Also run LightGBM Optuna tuning:
 
 `python run_lightgbm_optuna.py`
 
-The LightGBM tuning script loads the prepared development data, runs Optuna-based LightGBM tuning with stratified K-fold cross-validation, and saves results into the corresponding dataset-, split-, feature-set-, and model-specific subfolder within `optuna_results/`.
+In addition, run Logistic Regression Optuna tuning:
+
+`python run_logistic_regression_optuna.py`
+
+Each tuning script loads the prepared development data, runs Optuna-based tuning with stratified K-fold cross-validation (and fold-local standardization in the case of Logistic Regression), and saves results into the corresponding dataset-, split-, feature-set-, and model-specific subfolder within `optuna_results/`.
 
 To evaluate the best tuned XGBoost model on the test set, run:
 
@@ -121,6 +131,10 @@ To evaluate the best tuned XGBoost model on the test set, run:
 To evaluate the best tuned LightGBM model on the test set, run:
 
 `python evaluate_lightgbm.py`
+
+To evaluate the best tuned Logistic Regression model on the test set, run:
+
+`python evaluate_logistic_regression.py`
 
 Each evaluation script loads the saved model-specific Optuna study, retrains the best model on the full development set, evaluates it on the held-out test set, and prints the test Brier score, log loss, ROC AUC, and accuracy.
 
@@ -138,16 +152,24 @@ Important general and data preparation settings include:
 
 Important model-specific Optuna settings are grouped by model family.
 
-For XGBoost, the settings use the `XGBOOST_` prefix. For LightGBM, the settings use the `LIGHTGBM_` prefix.
+For XGBoost, the settings use the `XGBOOST_` prefix. For LightGBM, the settings use the `LIGHTGBM_` prefix. For Logistic Regression, the settings use the `LOGISTIC_REGRESSION_` prefix.
 
-`XGBOOST_FEATURE_SET` / `LIGHTGBM_FEATURE_SET` — selected feature set for tuning and evaluation\
-`XGBOOST_N_TRIALS` / `LIGHTGBM_N_TRIALS` — number of Optuna trials\
-`XGBOOST_N_JOBS` / `LIGHTGBM_N_JOBS` — number of parallel Optuna workers\
-`XGBOOST_N_SPLITS` / `LIGHTGBM_N_SPLITS` — number of stratified K-fold cross-validation splits\
+`XGBOOST_FEATURE_SET` / `LIGHTGBM_FEATURE_SET` / `LOGISTIC_REGRESSION_FEATURE_SET` — selected feature set for tuning and evaluation\
+`XGBOOST_N_TRIALS` / `LIGHTGBM_N_TRIALS` / `LOGISTIC_REGRESSION_N_TRIALS` — number of Optuna trials\
+`XGBOOST_N_JOBS` / `LIGHTGBM_N_JOBS` / `LOGISTIC_REGRESSION_N_JOBS` — number of parallel Optuna workers\
+`XGBOOST_N_SPLITS` / `LIGHTGBM_N_SPLITS` / `LOGISTIC_REGRESSION_N_SPLITS` — number of stratified K-fold cross-validation splits\
+`XGBOOST_VERBOSE` / `LIGHTGBM_VERBOSE` / `LOGISTIC_REGRESSION_VERBOSE` — whether to print trial-level Brier scores
+
+Important tree-model estimator settings are:
+
 `XGBOOST_N_ESTIMATORS_MIN` / `LIGHTGBM_N_ESTIMATORS_MIN` — minimum number of estimators considered by Optuna\
 `XGBOOST_N_ESTIMATORS_MAX` / `LIGHTGBM_N_ESTIMATORS_MAX` — maximum number of estimators considered by Optuna\
-`XGBOOST_N_ESTIMATORS_STEP` / `LIGHTGBM_N_ESTIMATORS_STEP` — step size for the Optuna search over estimators\
-`XGBOOST_VERBOSE` / `LIGHTGBM_VERBOSE` — whether to print trial-level Brier scores
+`XGBOOST_N_ESTIMATORS_STEP` / `LIGHTGBM_N_ESTIMATORS_STEP` — step size for the Optuna search over estimators
+
+Important Logistic Regression optimization settings are:
+
+`LOGISTIC_REGRESSION_MAX_ITER` — maximum number of Logistic Regression optimization iterations\
+`LOGISTIC_REGRESSION_TOL` — optimization tolerance for Logistic Regression
 
 `OPTUNA_RESULTS_DIR` represents the root output folder for Optuna result artifacts.
 
@@ -156,9 +178,11 @@ The currently supported datasets are:
 `breast_cancer`\
 `digits_binary`
 
-The currently supported XGBoost and LightGBM feature set is:
+The currently supported XGBoost, LightGBM, and Logistic Regression feature set is:
 
 `original`
+
+For Logistic Regression, `original` denotes the raw prepared feature matrix. Standardization is performed within the Logistic Regression workflow rather than by selecting the prepared `original_scaled` feature set.
 
 ## Breast Cancer Wisconsin Diagnostic Dataset
 
@@ -190,11 +214,11 @@ The project therefore treats digit one as the positive class.
 
 The full filtered feature matrix and target vector are preserved, together with the development/test split and scaled feature matrices.
 
-## XGBoost and LightGBM Optuna Tuning
+## XGBoost, LightGBM, and Logistic Regression Optuna Tuning
 
-The XGBoost and LightGBM tuning workflows use Optuna to search over model-specific hyperparameters.
+The XGBoost, LightGBM, and Logistic Regression tuning workflows use Optuna to search over model-specific hyperparameters.
 
-XGBoost and LightGBM tuning currently use the original feature matrix. Scaled original features remain available in the prepared data for future scale-sensitive models but are not supported by the XGBoost or LightGBM tuning workflows.
+XGBoost, LightGBM, and Logistic Regression tuning currently select the original feature matrix. XGBoost and LightGBM train directly on these features. Logistic Regression standardizes the features separately within each cross-validation training fold and applies the fitted scaler to the corresponding validation fold. The prepared scaled original feature matrices remain available but are not selected directly by the current model-specific tuning workflows.
 
 Each Optuna trial trains one model configuration across all stratified K folds and produces one full out-of-fold positive-class probability vector for the development set.
 
@@ -204,9 +228,9 @@ The final out-of-fold probability matrix has one column per trial and is saved f
 
 The test set is not used during Optuna tuning. After tuning is complete, the best saved configuration for each model family can be retrained on the full development set and evaluated once on the held-out test set.
 
-## XGBoost and LightGBM Test Evaluation
+## XGBoost, LightGBM, and Logistic Regression Test Evaluation
 
-The XGBoost and LightGBM test evaluation workflows load the saved Optuna study for the configured dataset, development/test split, feature set, and model family.
+The XGBoost, LightGBM, and Logistic Regression test evaluation workflows load the saved Optuna study for the configured dataset, development/test split, feature set, and model family.
 
 The best hyperparameters from the corresponding Optuna study are used to retrain a final model on the full development set.
 
@@ -226,7 +250,7 @@ The split uses stratification so that the class proportions in the development a
 
 `RANDOM_SEED` is defined separately so that Optuna sampling, stratified K-fold splitting, and model randomness can remain fixed while the development/test split is varied independently.
 
-XGBoost and LightGBM tuning use seeded Optuna samplers, seeded stratified K-fold splitting, and seeded models. Final retraining for both XGBoost and LightGBM also uses `RANDOM_SEED`. `XGBOOST_N_JOBS = 1` and `LIGHTGBM_N_JOBS = 1` keep Optuna trial execution sequential by default for improved reproducibility.
+XGBoost, LightGBM, and Logistic Regression tuning use seeded Optuna samplers, seeded stratified K-fold splitting, and seeded models. Final retraining for all three model families also uses `RANDOM_SEED`. `XGBOOST_N_JOBS = 1`, `LIGHTGBM_N_JOBS = 1`, and `LOGISTIC_REGRESSION_N_JOBS = 1` keep Optuna trial execution sequential by default for improved reproducibility.
 
 ## Generated Files
 
@@ -250,7 +274,7 @@ It currently emphasizes:
 * reproducible data preparation
 * stratified development/test splitting
 * leakage-aware preprocessing
-* Optuna-based XGBoost and LightGBM hyperparameter tuning
+* Optuna-based XGBoost, LightGBM, and Logistic Regression hyperparameter tuning
 * stratified K-fold out-of-fold probability generation
 * Brier-score optimization
 * final evaluation on the held-out test set
