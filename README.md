@@ -4,15 +4,17 @@ A modular Python machine learning project for building a binary classification e
 
 ## Overview
 
-The project implements data preparation for the Breast Cancer Wisconsin Diagnostic and binary Digits classification datasets, XGBoost, LightGBM, and Logistic Regression hyperparameter tuning using Optuna, and final XGBoost, LightGBM, and Logistic Regression evaluation on the held-out test set.
+The project implements data preparation for the Breast Cancer Wisconsin Diagnostic and binary Digits classification datasets, XGBoost, LightGBM, and Logistic Regression hyperparameter tuning using Optuna, final individual model evaluation on the held-out test set, Caruana-style greedy ensemble selection, and greedy ensemble evaluation on the held-out test set.
 
 The data preparation pipeline includes dataset loading, binary target encoding, stratified development/test splitting, feature scaling, and saving prepared arrays and the fitted scaler.
 
-The Breast Cancer Wisconsin target is encoded so that benign samples are class `0` and malignant samples are class `1`. This makes malignant the positive class for probability-based classification metrics and future ensemble evaluation.
+The Breast Cancer Wisconsin target is encoded so that benign samples are class `0` and malignant samples are class `1`. This makes malignant the positive class for probability-based classification metrics and ensemble evaluation.
 
 The binary Digits dataset contains handwritten zeros and ones, encoded as class `0` and class `1`, respectively.
 
-The XGBoost, LightGBM, and Logistic Regression workflows load prepared development data, select the configured original feature set, run Optuna with stratified K-fold cross-validation, store out-of-fold positive-class probabilities for future ensemble search, save tuning results locally, and evaluate the best tuned models on the held-out test set.
+The XGBoost, LightGBM, and Logistic Regression workflows load prepared development data, select the configured original feature set, run Optuna with stratified K-fold cross-validation, store out-of-fold positive-class probabilities for greedy ensemble selection, save tuning results locally, and evaluate the best tuned models on the held-out test set.
+
+The greedy ensemble workflow combines saved out-of-fold positive-class probability columns from the configured model families, builds a convex ensemble through Caruana-style greedy selection, allows repeated model selections when configured, converts selection counts into final ensemble weights, saves the chosen greedy ensemble, and evaluates it on the held-out test set.
 
 ## Project Structure
 
@@ -20,9 +22,11 @@ The XGBoost, LightGBM, and Logistic Regression workflows load prepared developme
 `run_xgboost_optuna.py` — XGBoost Optuna tuning workflow\
 `run_lightgbm_optuna.py` — LightGBM Optuna tuning workflow\
 `run_logistic_regression_optuna.py` — Logistic Regression Optuna tuning workflow\
+`run_greedy_ensemble_selection.py` — Caruana-style greedy ensemble selection workflow\
 `evaluate_xgboost.py` — XGBoost evaluation on the test set\
 `evaluate_lightgbm.py` — LightGBM evaluation on the test set\
 `evaluate_logistic_regression.py` — Logistic Regression evaluation on the test set\
+`evaluate_greedy_ensemble.py` — saved greedy ensemble evaluation on the test set\
 `config.py` — project settings and user-configurable parameters\
 `environment.py` — numerical library thread settings for improved reproducibility\
 `datasets/loader.py` — dataset dispatcher\
@@ -30,10 +34,13 @@ The XGBoost, LightGBM, and Logistic Regression workflows load prepared developme
 `datasets/digits_binary.py` — binary Digits dataset loading and filtering\
 `preprocessing.py` — stratified development/test splitting and standard feature scaling\
 `storage.py` — saving and loading prepared NumPy arrays and fitted preprocessing objects\
+`ensemble/oof_matrix.py` — construction of a unified out-of-fold probability matrix\
+`ensemble/greedy_selection.py` — Caruana-style greedy ensemble selection logic\
 `evaluation/validation.py` — validation helpers for final model evaluation\
 `evaluation/xgboost_evaluation.py` — XGBoost retraining on the full development set and evaluation on the test set\
 `evaluation/lightgbm_evaluation.py` — LightGBM retraining on the full development set and evaluation on the test set\
 `evaluation/logistic_regression_evaluation.py` — Logistic Regression retraining on the full development set and evaluation on the test set\
+`evaluation/ensemble_evaluation.py` — greedy ensemble retraining on the full development set and evaluation on the test set\
 `tuning/feature_sets.py` — feature set selection for tuning and evaluation workflows\
 `tuning/validation.py` — shared validation helpers for feature and target arrays\
 `tuning/result_storage.py` — saving and loading Optuna result artifacts\
@@ -92,6 +99,31 @@ The XGBoost, LightGBM, and Logistic Regression test evaluation workflows:
 * evaluate the retrained model on the held-out test set
 * print the final test Brier score, log loss, ROC AUC, and accuracy
 
+The greedy ensemble selection workflow:
+
+* loads saved out-of-fold positive-class probabilities from the configured XGBoost, LightGBM, and Logistic Regression model families
+* builds one unified out-of-fold probability matrix
+* runs Caruana-style greedy ensemble selection
+* optionally restricts the candidate pool with `GREEDY_POOL_SIZE`
+* allows repeated model selections when `GREEDY_ALLOW_REPEATS = True`
+* converts selection counts into convex weights
+* saves the greedy ensemble metadata and out-of-fold probabilities
+
+Generated greedy ensemble artifacts are saved locally within dataset- and split-specific subfolders of `ensemble_results/`.
+
+`ensemble_results/breast_cancer/split_seed_<DATA_SPLIT_SEED>/xgboost-original__lightgbm-original__logistic_regression-original/greedy_selection/`\
+`ensemble_results/digits_binary/split_seed_<DATA_SPLIT_SEED>/xgboost-original__lightgbm-original__logistic_regression-original/greedy_selection/`
+
+The greedy ensemble test evaluation workflow:
+
+* loads the saved greedy ensemble metadata
+* retrains the selected base models on the full development set using their saved trial hyperparameters
+* for selected Logistic Regression models, fits a `StandardScaler` on the full development feature matrix and applies it to both the development and test feature matrices
+* combines the selected models' positive-class test probabilities using the saved convex weights
+* evaluates the greedy ensemble on the held-out test set
+* saves greedy ensemble test metadata and test probabilities
+* prints the OOF Brier score and final test Brier score, log loss, ROC AUC, and accuracy
+
 ## How to Run
 
 This project is configured for Python 3.14.
@@ -138,6 +170,18 @@ To evaluate the best tuned Logistic Regression model on the test set, run:
 
 Each evaluation script loads the saved model-specific Optuna study, retrains the best model on the full development set, evaluates it on the held-out test set, and prints the test Brier score, log loss, ROC AUC, and accuracy.
 
+Next, run Caruana-style greedy ensemble selection:
+
+`python run_greedy_ensemble_selection.py`
+
+The greedy ensemble selection script loads the saved Optuna out-of-fold probability artifacts, builds a unified out-of-fold probability matrix, runs greedy ensemble selection, and saves the selected ensemble into the corresponding dataset- and split-specific subfolder within `ensemble_results/`.
+
+Finally, evaluate the saved greedy ensemble on the held-out test set:
+
+`python evaluate_greedy_ensemble.py`
+
+The greedy ensemble evaluation script retrains the selected base models on the full development set, combines their positive-class test probabilities using the saved convex weights, evaluates the ensemble on the held-out test set, and saves the resulting test artifacts within `ensemble_results/`.
+
 ## Configuration
 
 Main user-facing settings are stored in `config.py`.
@@ -147,7 +191,7 @@ Important general and data preparation settings include:
 `DATASET_NAME` — selected dataset name\
 `TEST_SIZE` — test set fraction\
 `DATA_SPLIT_SEED` — random seed used only for the development/test split; it also determines the split-specific output subfolder name\
-`RANDOM_SEED` — random seed used by Optuna sampling, stratified K-fold splitting, and model randomness, including final retraining\
+`RANDOM_SEED` — random seed used by Optuna sampling, stratified K-fold splitting, model randomness, greedy ensemble selection tie-breaking, and final retraining\
 `PREPARED_DATA_DIR` — root output folder for prepared data
 
 Important model-specific Optuna settings are grouped by model family.
@@ -171,7 +215,15 @@ Important Logistic Regression optimization settings are:
 `LOGISTIC_REGRESSION_MAX_ITER` — maximum number of Logistic Regression optimization iterations\
 `LOGISTIC_REGRESSION_TOL` — optimization tolerance for Logistic Regression
 
+Important greedy ensemble selection settings are:
+
+`GREEDY_POOL_SIZE` — number of the best individual models considered by greedy selection; set to `None` to use the full model zoo\
+`GREEDY_ENSEMBLE_SIZE` — number of greedy selection steps\
+`GREEDY_ALLOW_REPEATS` — whether the same model may be selected multiple times
+
 `OPTUNA_RESULTS_DIR` represents the root output folder for Optuna result artifacts.
+
+`ENSEMBLE_RESULTS_DIR` represents the root output folder for greedy ensemble selection and ensemble evaluation artifacts.
 
 The currently supported datasets are:
 
@@ -224,7 +276,7 @@ Each Optuna trial trains one model configuration across all stratified K folds a
 
 The full out-of-fold Brier score is minimized by Optuna. Per-fold Brier scores are also retained for each trial.
 
-The final out-of-fold probability matrix has one column per trial and is saved for future ensemble search.
+The final out-of-fold probability matrix for each model family has one column per trial and is saved for greedy ensemble selection.
 
 The test set is not used during Optuna tuning. After tuning is complete, the best saved configuration for each model family can be retrained on the full development set and evaluated once on the held-out test set.
 
@@ -238,6 +290,33 @@ The retrained model is then evaluated on the held-out test set. Each workflow pr
 
 This keeps the test set separate from hyperparameter tuning and reserves test-set performance measurement for final model evaluation.
 
+## Greedy Ensemble Selection
+
+The greedy ensemble selection workflow uses saved out-of-fold positive-class probabilities from the configured XGBoost, LightGBM, and Logistic Regression Optuna runs.
+
+It builds a unified out-of-fold probability matrix where each column corresponds to one saved Optuna trial. It then runs Caruana-style greedy ensemble selection. The algorithm first restricts the candidate set to the configured pool of the best individual models, unless the full model zoo is used. It then builds a convex ensemble by repeatedly adding the model that gives the lowest OOF Brier score after averaging the selected probability vectors. If repeats are enabled, the same model may be selected multiple times. Final convex weights are selection counts divided by the total number of completed greedy selections.
+
+The test set is not used during greedy ensemble selection.
+
+Greedy selection artifacts are saved within the corresponding dataset- and split-specific subfolder of `ensemble_results/` and include:
+
+* `base_model_column_metadata.pkl`
+* `greedy_oof_metadata.pkl`
+* `greedy_oof_probabilities.pkl`
+
+## Greedy Ensemble Test Evaluation
+
+The greedy ensemble test evaluation workflow loads the saved greedy ensemble metadata, retrains the selected base models on the full development set using the saved selected-trial hyperparameters, combines their positive-class test probabilities using the saved convex weights, and evaluates the greedy ensemble on the held-out test set.
+
+For selected Logistic Regression models, a `StandardScaler` is fitted on the full development feature matrix and applied to both the development and test feature matrices before final retraining and probability prediction.
+
+The script reports the greedy ensemble OOF Brier score and final test Brier score, log loss, ROC AUC, and accuracy. Accuracy uses a positive-class probability threshold of 0.5.
+
+Greedy ensemble test artifacts are saved within the corresponding dataset- and split-specific subfolder of `ensemble_results/` and include:
+
+* `greedy_test_metadata.pkl`
+* `greedy_test_probabilities.pkl`
+
 ## Reproducibility
 
 The project limits hidden parallelism in numerical libraries through `environment.py`.
@@ -250,7 +329,7 @@ The split uses stratification so that the class proportions in the development a
 
 `RANDOM_SEED` is defined separately so that Optuna sampling, stratified K-fold splitting, and model randomness can remain fixed while the development/test split is varied independently.
 
-XGBoost, LightGBM, and Logistic Regression tuning use seeded Optuna samplers, seeded stratified K-fold splitting, and seeded models. Final retraining for all three model families also uses `RANDOM_SEED`. `XGBOOST_N_JOBS = 1`, `LIGHTGBM_N_JOBS = 1`, and `LOGISTIC_REGRESSION_N_JOBS = 1` keep Optuna trial execution sequential by default for improved reproducibility.
+XGBoost, LightGBM, and Logistic Regression tuning use seeded Optuna samplers, seeded stratified K-fold splitting, and seeded models. Final retraining for all three model families also uses `RANDOM_SEED`. Greedy ensemble selection uses `RANDOM_SEED` for deterministic tie-breaking, and greedy ensemble test evaluation uses the same seed when retraining the selected base models. `XGBOOST_N_JOBS = 1`, `LIGHTGBM_N_JOBS = 1`, and `LOGISTIC_REGRESSION_N_JOBS = 1` keep Optuna trial execution sequential by default for improved reproducibility.
 
 ## Generated Files
 
@@ -259,8 +338,10 @@ The pipeline may generate files such as:
 * `.npy` prepared arrays
 * `.pkl` fitted preprocessing objects
 * `.pkl` Optuna studies and result artifacts
+* `.pkl` greedy ensemble selection and test evaluation artifacts
 * the `prepared_data/` directory
 * the `optuna_results/` directory
+* the `ensemble_results/` directory
 
 These files are ignored by Git because they are generated artifacts rather than source code.
 
@@ -276,9 +357,10 @@ It currently emphasizes:
 * leakage-aware preprocessing
 * Optuna-based XGBoost, LightGBM, and Logistic Regression hyperparameter tuning
 * stratified K-fold out-of-fold probability generation
+* Caruana-style greedy ensemble selection over saved out-of-fold probabilities
 * Brier-score optimization
-* final evaluation on the held-out test set
-* clean separation of dataset loading, preprocessing, tuning, evaluation, and storage
+* final individual-model and greedy-ensemble evaluation on the held-out test set
+* clean separation of dataset loading, preprocessing, tuning, ensemble selection, evaluation, and storage
 * a scalable structure for future model comparison and ensemble optimization
 
 ## License
