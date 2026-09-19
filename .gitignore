@@ -1,6 +1,7 @@
 .idea/
 .venv/
 __pycache__/
+build/
 ensemble_results/
 optuna_results/
 prepared_data/
@@ -8,5 +9,8 @@ prepared_data/
 *.iml
 *.npy
 *.pkl
+*.pyd
+*.so
+*.dylib
 *.egg-info/
 .DS_Store
