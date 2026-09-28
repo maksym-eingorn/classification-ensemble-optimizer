@@ -3,6 +3,8 @@
 
 # config.py
 
+import os
+
 # --- General settings ---
 
 RANDOM_SEED = 42
@@ -55,6 +57,15 @@ LOGISTIC_REGRESSION_N_SPLITS = 5
 LOGISTIC_REGRESSION_MAX_ITER = 20000
 LOGISTIC_REGRESSION_TOL = 1e-4
 LOGISTIC_REGRESSION_VERBOSE = True
+
+# --- Convex triplet ensemble search ---
+
+TRIPLET_TOP_N = 1000
+
+# Use all available logical CPU cores except one for the native C++/OpenMP
+# triplet search. The C++ RAII guard applies this only during the search call
+# and then restores the previous OpenMP thread setting.
+TRIPLET_N_THREADS = max(1, (os.cpu_count() or 2) - 1)
 
 # --- Greedy ensemble selection ---
 
