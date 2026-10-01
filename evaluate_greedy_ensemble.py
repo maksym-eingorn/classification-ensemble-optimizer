@@ -112,6 +112,11 @@ def main() -> None:
     test_roc_auc = cast(float, evaluated_metadata["test_roc_auc"])
     test_accuracy = cast(float, evaluated_metadata["test_accuracy"])
 
+    selected_columns = cast(list[int], evaluated_metadata["selected_columns"])
+    selected_columns_text = ", ".join(
+        str(column_index) for column_index in selected_columns
+    )
+
     print("Greedy ensemble evaluated on test data.")
     print(
         "Greedy test probability matrix shape: "
@@ -122,7 +127,8 @@ def main() -> None:
     print(
         "Greedy ensemble: "
         f"OOF Brier score = {oof_brier_score:.5f}, "
-        f"test Brier score = {test_brier_score:.5f}"
+        f"test Brier score = {test_brier_score:.5f}, "
+        f"selected columns ({selected_columns_text})"
     )
     print(f"Test log loss = {test_log_loss:.5f}")
     print(f"Test ROC AUC = {test_roc_auc:.5f}")

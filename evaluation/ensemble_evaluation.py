@@ -27,6 +27,7 @@ from tuning.validation import validate_positive_integer, validate_random_seed
 
 
 ModelMetadata = dict[str, object]
+TripletMetadata = dict[str, object]
 GreedyMetadata = dict[str, object]
 
 
@@ -169,6 +170,171 @@ def _predict_base_model_on_test(
         )
 
     return y_probability_test, y_test
+
+
+def _get_triplet_models(triplet: TripletMetadata) -> list[ModelMetadata]:
+    """Return the three base model metadata dictionaries for one triplet."""
+    if "models" not in triplet:
+        raise KeyError(
+            "Triplet metadata does not contain 'models'. "
+            "Run run_triplet_search.py before test evaluation."
+        )
+
+    models = cast(list[ModelMetadata], triplet["models"])
+
+    if len(models) != 3:
+        raise ValueError(
+            f"Triplet metadata must contain 3 models, got {len(models)}."
+        )
+
+    return models
+
+
+def _get_triplet_weights(triplet: TripletMetadata) -> np.ndarray:
+    """Return validated convex weights for one triplet."""
+    weights = np.array(
+        [
+            cast(float, triplet["wi"]),
+            cast(float, triplet["wj"]),
+            cast(float, triplet["wk"])
+        ],
+        dtype=np.float64
+    )
+
+    if not np.all(np.isfinite(weights)):
+        raise ValueError("Triplet weights must be finite.")
+
+    if np.any(weights < 0.0):
+        raise ValueError("Triplet weights must be nonnegative.")
+
+    weight_sum = float(np.sum(weights))
+
+    if not np.isclose(weight_sum, 1.0, rtol=0.0, atol=1e-12):
+        raise ValueError(f"Triplet weights must sum to 1, got {weight_sum}.")
+
+    return weights
+
+
+def evaluate_triplet_ensembles_on_test(
+    triplet_metadata: list[TripletMetadata],
+    arrays: dict[str, np.ndarray],
+    seed: int = 42,
+    logistic_regression_max_iter: int = 20000,
+    logistic_regression_tol: float = 1e-4
+) -> tuple[list[TripletMetadata], np.ndarray]:
+    """
+    Retrain selected triplet ensembles on the full development set and evaluate
+    them on the test set.
+
+    Parameters
+    ----------
+    triplet_metadata
+        Metadata saved by run_triplet_search.py.
+    arrays
+        Prepared dataset arrays loaded from storage.
+    seed
+        Random seed used for final base model retraining.
+    logistic_regression_max_iter
+        Maximum iterations for final Logistic Regression retraining.
+    logistic_regression_tol
+        Optimization tolerance for final Logistic Regression retraining.
+
+    Returns
+    -------
+    evaluated_metadata
+        Copy of triplet metadata with added test Brier score, log loss,
+        ROC AUC, and accuracy values.
+    triplet_test_probabilities
+        Test positive-class probability matrix for evaluated triplets.
+        Shape: (n_samples_test, n_kept_triplets).
+    """
+    validate_random_seed(seed, "seed")
+
+    if not triplet_metadata:
+        raise ValueError("triplet_metadata must contain at least one triplet.")
+
+    probability_cache: dict[int, np.ndarray] = {}
+    y_test_reference = None
+
+    evaluated_metadata = []
+    triplet_test_probabilities = []
+
+    for triplet in triplet_metadata:
+        models = _get_triplet_models(triplet)
+        weights = _get_triplet_weights(triplet)
+
+        y_probability_ensemble = None
+
+        for weight, model_metadata in zip(weights, models):
+            column_index = cast(int, model_metadata["column_index"])
+
+            if column_index not in probability_cache:
+                y_probability_test, y_test = _predict_base_model_on_test(
+                    model_metadata,
+                    arrays,
+                    seed=seed,
+                    logistic_regression_max_iter=logistic_regression_max_iter,
+                    logistic_regression_tol=logistic_regression_tol
+                )
+
+                probability_cache[column_index] = y_probability_test
+
+                if y_test_reference is None:
+                    y_test_reference = y_test
+                elif not np.array_equal(y_test_reference, y_test):
+                    raise ValueError(
+                        "Inconsistent y_test values encountered across "
+                        "feature sets."
+                    )
+
+            y_probability_test = probability_cache[column_index]
+
+            if y_probability_ensemble is None:
+                y_probability_ensemble = weight * y_probability_test
+            else:
+                y_probability_ensemble += weight * y_probability_test
+
+        if y_test_reference is None or y_probability_ensemble is None:
+            raise RuntimeError(
+                "Failed to construct triplet ensemble test probabilities."
+            )
+
+        y_prediction_ensemble = np.asarray(
+            y_probability_ensemble >= 0.5, dtype=np.int64
+        )
+
+        test_brier_score = float(
+            brier_score_loss(
+                y_test_reference,
+                y_probability_ensemble,
+                pos_label=1,
+                scale_by_half=True
+            )
+        )
+        test_log_loss = float(
+            log_loss(y_test_reference, y_probability_ensemble, labels=[0, 1])
+        )
+        test_roc_auc = float(
+            roc_auc_score(y_test_reference, y_probability_ensemble)
+        )
+        test_accuracy = float(
+            accuracy_score(y_test_reference, y_prediction_ensemble)
+        )
+
+        evaluated_triplet = triplet.copy()
+        evaluated_triplet["test_brier_score"] = test_brier_score
+        evaluated_triplet["test_log_loss"] = test_log_loss
+        evaluated_triplet["test_roc_auc"] = test_roc_auc
+        evaluated_triplet["test_accuracy"] = test_accuracy
+
+        evaluated_metadata.append(evaluated_triplet)
+        triplet_test_probabilities.append(y_probability_ensemble)
+
+    triplet_test_probabilities_matrix = np.column_stack(
+        triplet_test_probabilities
+    ).astype(np.float32)
+
+    return evaluated_metadata, triplet_test_probabilities_matrix
 
 
 def _get_greedy_models(
