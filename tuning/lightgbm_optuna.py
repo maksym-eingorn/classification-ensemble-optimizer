@@ -19,6 +19,107 @@ from tuning.validation import (
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
+LightGBMHyperparams = dict[str, object]
+
+
+def suggest_lightgbm_hyperparams(
+    trial: optuna.trial.Trial,
+    n_estimators_min: int,
+    n_estimators_max: int,
+    n_estimators_step: int
+) -> LightGBMHyperparams:
+    """Suggest one LightGBM hyperparameter configuration."""
+    return {
+        "n_estimators": trial.suggest_int(
+            "n_estimators",
+            n_estimators_min,
+            n_estimators_max,
+            step=n_estimators_step
+        ),
+        "learning_rate": trial.suggest_float(
+            "learning_rate", 0.01, 0.3, log=True
+        ),
+        "max_depth": trial.suggest_int(
+            "max_depth", 2, 15
+        ),
+        "num_leaves": trial.suggest_int(
+            "num_leaves", 4, 32768, log=True
+        ),
+        "colsample_bytree": trial.suggest_float(
+            "colsample_bytree", 0.5, 1.0
+        ),
+        "subsample": trial.suggest_float(
+            "subsample", 0.5, 1.0
+        ),
+        "subsample_freq": trial.suggest_int(
+            "subsample_freq", 0, 20
+        ),
+        "min_child_samples": trial.suggest_int(
+            "min_child_samples", 2, 200
+        ),
+        "reg_alpha": trial.suggest_float(
+            "reg_alpha", 0.001, 30.0, log=True
+        ),
+        "reg_lambda": trial.suggest_float(
+            "reg_lambda", 0.001, 30.0, log=True
+        ),
+        "min_split_gain": trial.suggest_float(
+            "min_split_gain", 0.0, 10.0
+        ),
+        "extra_trees": trial.suggest_categorical(
+            "extra_trees", [True, False]
+        )
+    }
+
+
+def evaluate_lightgbm_hyperparams_oof(
+    X_dev: np.ndarray,
+    y_dev: np.ndarray,
+    params: LightGBMHyperparams,
+    n_splits: int,
+    seed: int
+) -> tuple[np.ndarray, float, np.ndarray]:
+    """Evaluate one LightGBM configuration by stratified K-fold OOF Brier."""
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+
+    oof_probability = np.zeros(len(y_dev), dtype=np.float32)
+    per_fold_brier_scores = []
+
+    for train_idx, valid_idx in skf.split(X_dev, y_dev):
+        X_train, X_valid = X_dev[train_idx], X_dev[valid_idx]
+        y_train, y_valid = y_dev[train_idx], y_dev[valid_idx]
+
+        model = lgb.LGBMClassifier(
+            objective="binary",
+            random_state=seed,
+            feature_fraction_seed=seed,
+            bagging_seed=seed,
+            extra_seed=seed,
+            n_jobs=1,
+            verbosity=-1,
+            **params
+        )
+
+        model.fit(X_train, y_train)
+        y_probability = model.predict_proba(X_valid)[:, 1]
+
+        oof_probability[valid_idx] = y_probability
+
+        fold_brier_score = brier_score_loss(
+            y_valid, y_probability, pos_label=1, scale_by_half=True
+        )
+        per_fold_brier_scores.append(fold_brier_score)
+
+    fold_brier_scores_array = np.asarray(per_fold_brier_scores, dtype=float)
+
+    oof_brier_score = float(
+        brier_score_loss(
+            y_dev, oof_probability, pos_label=1, scale_by_half=True
+        )
+    )
+
+    return oof_probability, oof_brier_score, fold_brier_scores_array
+
 
 def run_optuna_kfold_lightgbm(
     X_dev,
@@ -117,83 +218,14 @@ def run_optuna_kfold_lightgbm(
     results = []
 
     def objective_lgb(trial: optuna.trial.Trial) -> float:
-        params = {
-            "n_estimators": trial.suggest_int(
-                "n_estimators",
-                n_estimators_min,
-                n_estimators_max,
-                step=n_estimators_step
-            ),
-            "learning_rate": trial.suggest_float(
-                "learning_rate", 0.01, 0.3, log=True
-            ),
-            "max_depth": trial.suggest_int(
-                "max_depth", 2, 15
-            ),
-            "num_leaves": trial.suggest_int(
-                "num_leaves", 4, 32768, log=True
-            ),
-            "colsample_bytree": trial.suggest_float(
-                "colsample_bytree", 0.5, 1.0
-            ),
-            "subsample": trial.suggest_float(
-                "subsample", 0.5, 1.0
-            ),
-            "subsample_freq": trial.suggest_int(
-                "subsample_freq", 0, 20
-            ),
-            "min_child_samples": trial.suggest_int(
-                "min_child_samples", 2, 200
-            ),
-            "reg_alpha": trial.suggest_float(
-                "reg_alpha", 0.001, 30.0, log=True
-            ),
-            "reg_lambda": trial.suggest_float(
-                "reg_lambda", 0.001, 30.0, log=True
-            ),
-            "min_split_gain": trial.suggest_float(
-                "min_split_gain", 0.0, 10.0
-            ),
-            "extra_trees": trial.suggest_categorical(
-                "extra_trees", [True, False]
-            )
-        }
-
-        skf = StratifiedKFold(
-            n_splits=n_splits, shuffle=True, random_state=seed
+        params = suggest_lightgbm_hyperparams(
+            trial, n_estimators_min, n_estimators_max, n_estimators_step
         )
 
-        oof_probability = np.zeros(len(y_dev), dtype=np.float32)
-        per_fold_brier_scores = []
-
-        for train_idx, valid_idx in skf.split(X_dev, y_dev):
-            X_train, X_valid = X_dev[train_idx], X_dev[valid_idx]
-            y_train, y_valid = y_dev[train_idx], y_dev[valid_idx]
-
-            model = lgb.LGBMClassifier(
-                objective="binary",
-                random_state=seed,
-                feature_fraction_seed=seed,
-                bagging_seed=seed,
-                extra_seed=seed,
-                n_jobs=1,
-                verbosity=-1,
-                **params
-            )
-
-            model.fit(X_train, y_train)
-            y_probability = model.predict_proba(X_valid)[:, 1]
-
-            oof_probability[valid_idx] = y_probability
-
-            fold_brier_score = brier_score_loss(
-                y_valid, y_probability, pos_label=1, scale_by_half=True
-            )
-            per_fold_brier_scores.append(fold_brier_score)
-
-        fold_brier_scores_array = np.array(per_fold_brier_scores, dtype=float)
-        oof_brier_score = brier_score_loss(
-            y_dev, oof_probability, pos_label=1, scale_by_half=True
+        (
+            oof_probability, oof_brier_score, fold_brier_scores_array
+        ) = evaluate_lightgbm_hyperparams_oof(
+            X_dev, y_dev, params, n_splits=n_splits, seed=seed
         )
 
         results.append((
