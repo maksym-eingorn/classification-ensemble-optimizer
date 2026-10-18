@@ -10,7 +10,7 @@ import os
 RANDOM_SEED = 42
 
 # Controls only the development/test split.
-DATA_SPLIT_SEED = 21
+DATA_SPLIT_SEED = 100
 
 # --- Dataset settings ---
 
@@ -44,6 +44,26 @@ LIGHTGBM_N_ESTIMATORS_MIN = 100
 LIGHTGBM_N_ESTIMATORS_MAX = 1000
 LIGHTGBM_N_ESTIMATORS_STEP = 50
 LIGHTGBM_VERBOSE = True
+
+# --- LightGBM ensemble-aware HPO stopping ---
+
+# Number of development meta-folds used to estimate downstream ensemble
+# generalization independently of the corresponding Optuna trajectories.
+LIGHTGBM_STOPPING_META_N_SPLITS = 5
+
+# Number of additional Optuna trials run per meta-fold between stopping checks.
+LIGHTGBM_STOPPING_CHECKPOINT_TRIALS = 100
+
+# Stop after this many consecutive checkpoints fail to improve the best
+# cross-fitted downstream-ensemble Brier score.
+LIGHTGBM_STOPPING_PATIENCE = 10
+
+# Hard upper limit for each meta-fold Optuna trajectory.
+LIGHTGBM_STOPPING_MAX_TRIALS = 1000
+
+# Maximum number of independent meta-fold Optuna trajectories run in parallel.
+# Each individual Optuna study and each LightGBM model remain single-threaded.
+LIGHTGBM_STOPPING_MAX_WORKERS = 5
 
 # --- Logistic Regression Optuna tuning ---
 
@@ -87,3 +107,4 @@ GREEDY_ALLOW_REPEATS = True
 PREPARED_DATA_DIR = "prepared_data"
 OPTUNA_RESULTS_DIR = "optuna_results"
 ENSEMBLE_RESULTS_DIR = "ensemble_results"
+STOPPING_RESULTS_DIR = "stopping_results"

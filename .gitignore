@@ -5,6 +5,7 @@ build/
 ensemble_results/
 optuna_results/
 prepared_data/
+stopping_results/
 
 *.iml
 *.npy
