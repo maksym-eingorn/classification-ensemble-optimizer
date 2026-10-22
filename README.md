@@ -4,7 +4,7 @@ A modular Python machine learning project (with C++/OpenMP acceleration) for bui
 
 ## Overview
 
-The project implements data preparation for the Breast Cancer Wisconsin Diagnostic and binary Digits classification datasets, XGBoost, LightGBM, and Logistic Regression hyperparameter tuning using Optuna, final individual model evaluation on the held-out test set, exact Brier-optimal convex triplet ensemble search, triplet ensemble evaluation on the held-out test set, Caruana-style greedy ensemble selection, and greedy ensemble evaluation on the held-out test set.
+The project implements data preparation for the Breast Cancer Wisconsin Diagnostic and binary Digits classification datasets, XGBoost, LightGBM, and Logistic Regression hyperparameter tuning using Optuna, final individual model evaluation on the held-out test set, exact Brier-optimal convex triplet ensemble search, triplet ensemble evaluation on the held-out test set, Caruana-style greedy ensemble selection, greedy ensemble evaluation on the held-out test set, and a LightGBM-specific ensemble-aware HPO budget-selection workflow based on cross-fitted downstream greedy ensemble performance.
 
 The data preparation pipeline includes dataset loading, binary target encoding, stratified development/test splitting, feature scaling, and saving prepared arrays and the fitted scaler.
 
@@ -18,6 +18,10 @@ The triplet ensemble workflow combines saved out-of-fold positive-class probabil
 
 The greedy ensemble workflow uses the same saved out-of-fold probability matrix, builds a convex ensemble through Caruana-style greedy selection, allows repeated model selections when configured, converts selection counts into final ensemble weights, saves the chosen greedy ensemble, and evaluates it on the held-out test set.
 
+The LightGBM ensemble-aware HPO budget-selection workflow evaluates candidate library size using meta-holdout observations that are not used by the corresponding Optuna trajectories. It partitions the development set into stratified meta-folds, advances one independent LightGBM Optuna trajectory per meta-fold in checkpoint blocks, constructs a LightGBM-only greedy ensemble from the candidates available at each checkpoint, retrains the selected ensemble members on the corresponding meta-training set, and evaluates the ensemble on the untouched meta-holdout set. The held-out predictions from all meta-folds are combined into one cross-fitted development-set probability vector, whose Brier score determines the preferred Optuna candidate budget without using the outer test set.
+
+The selected candidate budget can then be applied to the already stored sequential full-development LightGBM Optuna trajectory. The project builds one greedy ensemble from the first `N` stored trials, where `N` is the selected budget, and another from the complete stored candidate zoo, retrains both on the full development set, and compares them on the untouched outer test set.
+
 ## Project Structure
 
 `main.py` — data preparation pipeline\
@@ -26,11 +30,14 @@ The greedy ensemble workflow uses the same saved out-of-fold probability matrix,
 `run_logistic_regression_optuna.py` — Logistic Regression Optuna tuning workflow\
 `run_triplet_search.py` — exact Brier-optimal convex triplet ensemble search workflow\
 `run_greedy_ensemble_selection.py` — Caruana-style greedy ensemble selection workflow\
+`run_lightgbm_ensemble_stopping.py` — cross-fitted LightGBM ensemble-aware HPO budget-selection workflow\
+`run_lightgbm_stopped_greedy_selection.py` — selected-budget and full-budget LightGBM greedy ensemble construction\
 `evaluate_xgboost.py` — XGBoost evaluation on the test set\
 `evaluate_lightgbm.py` — LightGBM evaluation on the test set\
 `evaluate_logistic_regression.py` — Logistic Regression evaluation on the test set\
 `evaluate_triplet_ensembles.py` — saved triplet ensemble evaluation on the test set\
 `evaluate_greedy_ensemble.py` — saved greedy ensemble evaluation on the test set\
+`evaluate_lightgbm_stopping_comparison.py` — selected-budget versus full-budget LightGBM greedy ensemble test comparison\
 `config.py` — project settings and user-configurable parameters\
 `environment.py` — numerical library thread settings for improved reproducibility\
 `datasets/loader.py` — dataset dispatcher\
@@ -46,11 +53,14 @@ The greedy ensemble workflow uses the same saved out-of-fold probability matrix,
 `evaluation/lightgbm_evaluation.py` — LightGBM retraining on the full development set and evaluation on the test set\
 `evaluation/logistic_regression_evaluation.py` — Logistic Regression retraining on the full development set and evaluation on the test set\
 `evaluation/ensemble_evaluation.py` — triplet and greedy ensemble retraining on the full development set and evaluation on the test set\
+`evaluation/lightgbm_greedy_holdout_evaluation.py` — LightGBM-only greedy ensemble retraining and evaluation on an untouched meta-holdout set\
+`stopping/lightgbm_ensemble_stopping.py` — checkpointed cross-fitted LightGBM greedy ensemble-aware HPO budget-selection logic\
 `tuning/feature_sets.py` — feature set selection for tuning and evaluation workflows\
 `tuning/validation.py` — shared validation helpers for feature and target arrays\
 `tuning/result_storage.py` — saving and loading Optuna result artifacts\
 `tuning/xgboost_optuna.py` — XGBoost Optuna tuning logic\
-`tuning/lightgbm_optuna.py` — LightGBM Optuna tuning logic\
+`tuning/lightgbm_optuna.py` — LightGBM Optuna tuning logic and shared trial suggestion/out-of-fold evaluation helpers\
+`tuning/lightgbm_incremental_optuna.py` — incremental block execution and continuation of sequential LightGBM Optuna studies\
 `tuning/logistic_regression_optuna.py` — Logistic Regression Optuna tuning logic\
 `native/triplet_search.cpp` — C++/OpenMP implementation of exact exhaustive convex triplet search\
 `setup_triplet_search.py` — build script for the native triplet search extension\
@@ -58,7 +68,7 @@ The greedy ensemble workflow uses the same saved out-of-fold probability matrix,
 
 ## How It Works
 
-The data preparation pipeline:
+### The data preparation pipeline:
 
 * loads the selected binary classification dataset
 * converts the Breast Cancer Wisconsin target to `0 = benign` and `1 = malignant`
@@ -76,7 +86,7 @@ Generated data artifacts are saved locally in dataset- and split-specific subfol
 `prepared_data/breast_cancer/split_seed_<DATA_SPLIT_SEED>/`\
 `prepared_data/digits_binary/split_seed_<DATA_SPLIT_SEED>/`
 
-The XGBoost, LightGBM, and Logistic Regression Optuna tuning workflows:
+### The XGBoost, LightGBM, and Logistic Regression Optuna tuning workflows:
 
 * load prepared data for the selected dataset
 * choose the configured original feature set
@@ -96,7 +106,7 @@ Generated Optuna artifacts are saved locally in dataset-, split-, feature-set-, 
 `optuna_results/digits_binary/split_seed_<DATA_SPLIT_SEED>/original/lightgbm/`\
 `optuna_results/digits_binary/split_seed_<DATA_SPLIT_SEED>/original/logistic_regression/`
 
-The XGBoost, LightGBM, and Logistic Regression test evaluation workflows:
+### The XGBoost, LightGBM, and Logistic Regression test evaluation workflows:
 
 * load the prepared development and test data for the selected dataset
 * choose the same configured original feature set used during tuning
@@ -106,7 +116,7 @@ The XGBoost, LightGBM, and Logistic Regression test evaluation workflows:
 * evaluate the retrained model on the held-out test set
 * print the final test Brier score, log loss, ROC AUC, and accuracy
 
-The convex triplet ensemble search workflow:
+### The convex triplet ensemble search workflow:
 
 * loads saved out-of-fold positive-class probabilities from the configured XGBoost, LightGBM, and Logistic Regression model families
 * builds one unified out-of-fold probability matrix
@@ -116,7 +126,7 @@ The convex triplet ensemble search workflow:
 * retains up to the configured number of top OOF-ranked triplets
 * saves the retained triplet metadata and out-of-fold probabilities
 
-The greedy ensemble selection workflow:
+### The greedy ensemble selection workflow:
 
 * loads saved out-of-fold positive-class probabilities from the configured XGBoost, LightGBM, and Logistic Regression model families
 * builds one unified out-of-fold probability matrix
@@ -133,7 +143,49 @@ Generated ensemble search and selection artifacts are saved locally within datas
 `ensemble_results/digits_binary/split_seed_<DATA_SPLIT_SEED>/xgboost-original__lightgbm-original__logistic_regression-original/triplet_convex/`\
 `ensemble_results/digits_binary/split_seed_<DATA_SPLIT_SEED>/xgboost-original__lightgbm-original__logistic_regression-original/greedy_selection/`
 
-The triplet ensemble test evaluation workflow:
+### The LightGBM ensemble-aware HPO budget-selection workflow:
+
+* is currently implemented for the original LightGBM feature set and the Caruana-style greedy ensemble
+* uses only the development set when selecting the candidate budget
+* partitions the development set into stratified meta-folds
+* runs one independent seeded LightGBM Optuna trajectory for each meta-fold
+* keeps the corresponding meta-holdout fold completely outside that Optuna trajectory
+* runs every Optuna trajectory sequentially in checkpoint blocks while preserving the same Optuna study and TPE history across checkpoints
+* performs the usual inner stratified K-fold out-of-fold evaluation for every LightGBM trial using only the meta-training portion
+* builds a LightGBM-only greedy ensemble from the candidates accumulated in that meta-training trajectory at each checkpoint, subject to the configured greedy pool size
+* retrains the selected greedy ensemble members on the complete meta-training portion
+* evaluates the retrained ensemble on the untouched meta-holdout portion
+* combines all meta-holdout probability vectors into one complete cross-fitted probability vector over the development set
+* computes the checkpoint Brier score from that complete cross-fitted probability vector
+* treats a strictly lower cross-fitted Brier score as an improvement
+* selects the best checkpoint encountered
+* can terminate candidate generation after the configured number of consecutive non-improving checkpoints
+* never uses the outer test set to select the candidate budget
+
+The independent meta-fold Optuna trajectories may run in parallel processes, while every individual Optuna study and every LightGBM model fit remains single-threaded.
+
+Stopping artifacts are saved locally in:
+
+`stopping_results/<dataset>/split_seed_<DATA_SPLIT_SEED>/lightgbm-original/greedy_ensemble_stopping/`
+
+The saved artifacts include the stopping settings, complete checkpoint history, cross-fitted checkpoint probabilities, final stopping summary, and per-meta-fold Optuna and checkpoint artifacts.
+
+The selected-budget comparison workflow then uses the already stored sequential full-development LightGBM Optuna trajectory. The first `N` saved trials represent the candidate zoo that existed after `N` sequential trials, so they can be used to reconstruct the candidate zoo corresponding to the selected budget.
+
+`run_lightgbm_stopped_greedy_selection.py` builds:
+
+* a LightGBM-only greedy ensemble from the first `N` stored full-development Optuna trials, where `N` is the selected budget
+* a LightGBM-only greedy ensemble from the complete stored full-development Optuna trajectory
+
+These comparison ensembles are saved in:
+
+`ensemble_results/<dataset>/split_seed_<DATA_SPLIT_SEED>/lightgbm-original/stopping_comparison/`
+
+The outer test set remains untouched until `evaluate_lightgbm_stopping_comparison.py` retrains and evaluates the selected-budget and full-budget ensembles. The comparison script saves test metadata, test probability vectors, and a compact `comparison_summary.pkl`.
+
+With the current configuration of 100-trial checkpoints, a 1000-trial maximum, and `LIGHTGBM_STOPPING_PATIENCE = 10`, the workflow intentionally reaches the 1000-trial maximum and selects the checkpoint with the lowest cross-fitted ensemble Brier score among 100, 200, ..., 1000 trials. This configuration can be used to study candidate-budget selection over the complete checkpoint curve rather than to realize computational savings through early termination.
+
+### The triplet ensemble test evaluation workflow:
 
 * loads the saved OOF-ranked triplet metadata
 * retrains the selected base models on the full development set using their saved trial hyperparameters
@@ -143,7 +195,7 @@ The triplet ensemble test evaluation workflow:
 * saves triplet test metadata and test probabilities
 * prints the OOF Brier score and final test Brier score, log loss, ROC AUC, and accuracy for the best OOF-ranked triplet and, for diagnostic purposes only, for the retained triplet with the lowest test Brier score
 
-The greedy ensemble test evaluation workflow:
+### The greedy ensemble test evaluation workflow:
 
 * loads the saved greedy ensemble metadata
 * retrains the selected base models on the full development set using their saved trial hyperparameters
@@ -223,11 +275,35 @@ Also, run Caruana-style greedy ensemble selection:
 
 The greedy ensemble selection script does not require building the native C++ extension. It loads the saved Optuna out-of-fold probability artifacts, builds a unified out-of-fold probability matrix, runs greedy ensemble selection, and saves the selected ensemble into the corresponding dataset- and split-specific subfolder within `ensemble_results/`.
 
-Finally, evaluate the saved greedy ensemble on the held-out test set:
+Evaluate the saved greedy ensemble on the held-out test set:
 
 `python evaluate_greedy_ensemble.py`
 
 The greedy ensemble evaluation script retrains the selected base models on the full development set, combines their positive-class test probabilities using the saved convex weights, evaluates the ensemble on the held-out test set, and saves the resulting test artifacts within `ensemble_results/`.
+
+The LightGBM stopping experiment is an additional LightGBM-only greedy ensemble workflow. It requires prepared data for the selected development/test split.
+
+First, run the independent cross-fitted LightGBM ensemble-aware HPO budget-selection procedure:
+
+`python run_lightgbm_ensemble_stopping.py`
+
+The script creates independent checkpointed Optuna trajectories within the configured development meta-folds, evaluates the downstream greedy ensemble on untouched meta-holdout observations at every checkpoint, reconstructs one complete cross-fitted development-set probability vector per checkpoint, and selects the candidate budget with the best cross-fitted Brier score encountered.
+
+The corresponding outer test set is not used by this script.
+
+To construct the selected-budget and full-budget final LightGBM greedy ensembles, a complete sequential full-development LightGBM Optuna trajectory must already exist in `optuna_results/`. If it has not already been generated, execute `run_lightgbm_optuna.py` first. Then run:
+
+`python run_lightgbm_stopped_greedy_selection.py`
+
+This script uses the independently selected candidate budget `N`, takes the first `N` trials from the stored full-development LightGBM Optuna trajectory, builds the corresponding greedy ensemble, and also builds a baseline greedy ensemble from the complete stored trajectory.
+
+Finally, evaluate both ensembles on the untouched outer test set:
+
+`python evaluate_lightgbm_stopping_comparison.py`
+
+The comparison script retrains the selected base models on the full development set, evaluates the selected-budget and full-budget greedy ensembles on the held-out test set, prints their out-of-fold and test metrics, prints the selected-minus-full test Brier difference, and saves the comparison artifacts within `ensemble_results/`.
+
+A negative selected-minus-full test Brier difference means that the independently selected candidate budget produced a lower test Brier score than the full stored candidate zoo.
 
 ## Configuration
 
@@ -238,7 +314,7 @@ Important general and data preparation settings include:
 `DATASET_NAME` — selected dataset name\
 `TEST_SIZE` — test set fraction\
 `DATA_SPLIT_SEED` — random seed used only for the development/test split; it also determines the split-specific output subfolder name\
-`RANDOM_SEED` — random seed used by Optuna sampling, stratified K-fold splitting, model randomness, greedy ensemble selection tie-breaking, and final retraining\
+`RANDOM_SEED` — random seed used by Optuna sampling, stratified K-fold and meta-fold splitting, model randomness, greedy ensemble selection tie-breaking, and final retraining\
 `PREPARED_DATA_DIR` — root output folder for prepared data
 
 Important model-specific Optuna settings are grouped by model family.
@@ -273,9 +349,23 @@ Important greedy ensemble selection settings are:
 `GREEDY_ENSEMBLE_SIZE` — maximum number of greedy selection steps\
 `GREEDY_ALLOW_REPEATS` — whether the same model may be selected multiple times
 
+Important LightGBM ensemble-aware HPO budget-selection settings are:
+
+`LIGHTGBM_STOPPING_META_N_SPLITS` — number of stratified development meta-folds used for independent downstream ensemble validation\
+`LIGHTGBM_STOPPING_CHECKPOINT_TRIALS` — number of additional Optuna trials run per meta-fold between checkpoint evaluations\
+`LIGHTGBM_STOPPING_PATIENCE` — number of consecutive non-improving checkpoints allowed before candidate generation terminates\
+`LIGHTGBM_STOPPING_MAX_TRIALS` — maximum number of Optuna trials in each meta-fold trajectory\
+`LIGHTGBM_STOPPING_MAX_WORKERS` — maximum number of independent meta-fold Optuna trajectories executed concurrently
+
+Each individual Optuna trajectory in the stopping workflow remains sequential, and every LightGBM model uses a single job. Parallelism is applied only across separate meta-fold trajectories.
+
+With the current settings—`LIGHTGBM_STOPPING_CHECKPOINT_TRIALS = 100`, `LIGHTGBM_STOPPING_PATIENCE = 10`, and `LIGHTGBM_STOPPING_MAX_TRIALS = 1000`—the experiment runs the complete 100-to-1000 checkpoint curve and selects the checkpoint with the lowest cross-fitted Brier score rather than terminating early through patience.
+
 `OPTUNA_RESULTS_DIR` represents the root output folder for Optuna result artifacts.
 
 `ENSEMBLE_RESULTS_DIR` represents the root output folder for triplet search, greedy selection, and ensemble evaluation artifacts.
+
+`STOPPING_RESULTS_DIR` represents the root output folder for ensemble-aware HPO stopping artifacts.
 
 The currently supported datasets are:
 
@@ -326,7 +416,7 @@ XGBoost, LightGBM, and Logistic Regression tuning currently select the original 
 
 Each Optuna trial trains one model configuration across all stratified K folds and produces one full out-of-fold positive-class probability vector for the development set.
 
-The full out-of-fold Brier score is minimized by Optuna. Per-fold Brier scores are also retained for each trial.
+The full OOF Brier score is minimized by Optuna. Per-fold Brier scores are also retained for each trial.
 
 The final out-of-fold probability matrix for each model family has one column per trial and is saved for triplet ensemble search and greedy ensemble selection.
 
@@ -398,6 +488,24 @@ Greedy ensemble test artifacts are saved within the corresponding dataset- and s
 * `greedy_test_metadata.pkl`
 * `greedy_test_probabilities.pkl`
 
+## LightGBM Ensemble-Aware HPO Budget Selection
+
+The ensemble-aware HPO budget-selection workflow addresses candidate library size as a downstream ensemble selection problem rather than stopping Optuna according to the best individual model objective alone.
+
+For each development/test split, the test set is held completely aside. The development set is partitioned into stratified meta-folds. For every meta-fold, LightGBM hyperparameter optimization is performed only on the corresponding meta-training portion, with inner stratified K-fold out-of-fold predictions generated for every trial.
+
+At each configured checkpoint, all LightGBM candidates accumulated in the meta-training trajectory are passed to the same Caruana-style greedy ensemble selector used elsewhere in the project. The selected ensemble members are then retrained on the complete meta-training portion and evaluated on the untouched meta-holdout portion.
+
+Each development observation therefore receives one ensemble probability from a model selection process that did not use that observation for either Optuna tuning or greedy ensemble selection. The resulting held-out probabilities are concatenated into one full cross-fitted development-set prediction vector, and its Brier score is used as the checkpoint-level downstream ensemble generalization estimate.
+
+The selected candidate budget is the checkpoint with the lowest cross-fitted Brier score encountered. A strict decrease is required for improvement. The implementation also supports patience-based termination after a configured number of consecutive non-improving checkpoints.
+
+The outer test set is not used to choose the candidate budget.
+
+For final comparison, the selected budget is applied to the stored sequential full-development LightGBM Optuna trajectory by taking its first `N` trials. A greedy ensemble is built from those selected candidates and compared with a greedy ensemble built from the complete stored candidate zoo. Both are retrained on the full development set and evaluated on the same untouched outer test set.
+
+This workflow currently supports LightGBM with the `original` feature set and greedy ensemble selection. It is implemented separately from the existing multi-model greedy and exact convex triplet workflows.
+
 ## Reproducibility
 
 The project limits hidden parallelism in numerical libraries through `environment.py`.
@@ -414,6 +522,10 @@ XGBoost, LightGBM, and Logistic Regression tuning use seeded Optuna samplers, se
 
 The native triplet search uses OpenMP for parallel exhaustive search. Its thread count is controlled by `TRIPLET_N_THREADS`.
 
+The LightGBM ensemble-aware HPO budget-selection workflow uses seeded stratified meta-fold splitting and preserves each meta-fold Optuna study across checkpoint blocks. The independent meta-fold trajectories may execute concurrently in separate processes, but every individual Optuna study is sequential and every LightGBM model remains single-threaded. Resuming a saved meta-fold study preserves its accumulated Optuna history rather than restarting the search.
+
+Changing `DATA_SPLIT_SEED` changes the development/test split while `RANDOM_SEED` continues to control the meta-fold split, Optuna sampling, inner cross-validation, LightGBM randomness, and greedy tie-breaking within that split.
+
 ## Generated Files
 
 The pipeline may generate files such as:
@@ -421,11 +533,12 @@ The pipeline may generate files such as:
 * `.npy` prepared arrays
 * `.pkl` fitted preprocessing objects
 * `.pkl` Optuna studies and result artifacts
-* `.pkl` ensemble search, selection, and evaluation artifacts
+* `.pkl` ensemble search, selection, evaluation, stopping, and comparison artifacts
 * compiled native extension files
 * the `prepared_data/` directory
 * the `optuna_results/` directory
 * the `ensemble_results/` directory
+* the `stopping_results/` directory
 * the `build/` directory
 
 These files are ignored by Git because they are generated artifacts rather than source code.
@@ -447,6 +560,10 @@ It currently emphasizes:
 * Caruana-style greedy ensemble selection over saved out-of-fold probabilities
 * Brier-score optimization
 * final evaluation of individual models, triplet ensembles, and greedy ensembles on the held-out test set
+* checkpointed continuation of sequential LightGBM Optuna trajectories
+* cross-fitted downstream ensemble evaluation for HPO candidate budget selection
+* strict separation of candidate budget selection from the test set
+* reconstruction and comparison of selected-budget and full-budget LightGBM greedy ensembles
 * clean separation of dataset loading, preprocessing, tuning, ensemble search, selection, evaluation, and storage
 * a scalable structure for future model comparison and ensemble optimization
 
