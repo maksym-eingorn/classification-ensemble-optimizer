@@ -65,6 +65,14 @@ LIGHTGBM_STOPPING_MAX_TRIALS = 1000
 # Each individual Optuna study and each LightGBM model remain single-threaded.
 LIGHTGBM_STOPPING_MAX_WORKERS = 5
 
+# --- Multi-seed stopping analysis ---
+
+# Development/test split seeds included in the aggregate stopping analysis.
+ANALYSIS_DATA_SPLIT_SEEDS = tuple(range(1, 101))
+
+# Absolute tolerance used only to classify effectively equal analysis results.
+ANALYSIS_TIE_TOLERANCE = 1e-12
+
 # --- Logistic Regression Optuna tuning ---
 
 # Supported feature set: "original"
@@ -108,3 +116,4 @@ PREPARED_DATA_DIR = "prepared_data"
 OPTUNA_RESULTS_DIR = "optuna_results"
 ENSEMBLE_RESULTS_DIR = "ensemble_results"
 STOPPING_RESULTS_DIR = "stopping_results"
+ANALYSIS_RESULTS_DIR = "analysis_results"
