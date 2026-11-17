@@ -247,6 +247,139 @@ def _greedy_ensemble_selection_from_dots(
     return selected_columns, weights, selected_counts, k, oof_brier_score
 
 
+def _validate_precomputed_dot_products(
+    G, s, y2: float, n_models: int
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Validate precomputed dot products for one probability matrix."""
+    G = np.asarray(G, dtype=np.float64)
+    s = np.asarray(s, dtype=np.float64)
+
+    if G.shape != (n_models, n_models):
+        raise ValueError(
+            f"G must have shape ({n_models}, {n_models}), got {G.shape}."
+        )
+
+    if s.shape != (n_models,):
+        raise ValueError(f"s must have shape ({n_models},), got {s.shape}.")
+
+    if not np.all(np.isfinite(G)) or not np.all(np.isfinite(s)):
+        raise ValueError("Precomputed dot products must be finite.")
+
+    if (
+        isinstance(y2, bool)
+        or not isinstance(y2, (int, float, np.integer, np.floating))
+        or not np.isfinite(y2)
+        or y2 < 0.0
+    ):
+        raise ValueError(f"y2 must be a finite nonnegative number, got {y2}.")
+
+    return G, s, float(y2)
+
+
+def _build_greedy_ensemble_from_validated_dots(
+    P: np.ndarray,
+    column_metadata: list[ModelMetadata],
+    pool_size: int | None,
+    effective_pool_size: int,
+    ensemble_size: int,
+    seed: int,
+    allow_repeats: bool,
+    G: np.ndarray,
+    s: np.ndarray,
+    y2: float
+) -> tuple[GreedyMetadata, np.ndarray]:
+    """
+    Build final greedy metadata and out-of-fold probabilities from validated
+    dot products.
+    """
+    (
+        selected_columns,
+        weights,
+        selection_counts,
+        actual_ensemble_size,
+        oof_brier_score
+    ) = _greedy_ensemble_selection_from_dots(
+        G,
+        s,
+        y2,
+        n_samples_dev=P.shape[0],
+        pool_size=effective_pool_size,
+        ensemble_size=ensemble_size,
+        seed=seed,
+        allow_repeats=allow_repeats
+    )
+
+    selected_matrix = P[:, selected_columns]
+    weights_array = np.asarray(weights, dtype=np.float64)
+
+    oof_probabilities = selected_matrix @ weights_array
+
+    metadata: GreedyMetadata = {
+        "method": "caruana_style_greedy",
+        "pool_size": pool_size,
+        "effective_pool_size": effective_pool_size,
+        "ensemble_size": ensemble_size,
+        "actual_ensemble_size": actual_ensemble_size,
+        "allow_repeats": allow_repeats,
+        "selected_columns": selected_columns,
+        "weights": weights,
+        "selection_counts": selection_counts,
+        "n_unique_models": len(selected_columns),
+        "oof_brier_score": float(oof_brier_score),
+        "models": [
+            dict(column_metadata[column_index])
+            for column_index in selected_columns
+        ]
+    }
+
+    return metadata, oof_probabilities.astype(np.float64)
+
+
+def find_greedy_ensemble_from_precomputed_dot_products(
+    P,
+    y,
+    column_metadata: list[ModelMetadata],
+    G,
+    s,
+    y2: float,
+    pool_size: int | None = 100,
+    ensemble_size: int = 50,
+    seed: int = 42,
+    allow_repeats: bool = True
+) -> tuple[GreedyMetadata, np.ndarray]:
+    """
+    Build a greedy ensemble using dot products already computed for P and y.
+
+    This is equivalent to find_greedy_ensemble, but avoids recomputing
+    P.T @ P and P.T @ y. It is useful when evaluating nested prefixes of
+    one fixed out-of-fold probability matrix.
+    """
+    P, y, effective_pool_size = _validate_greedy_inputs(
+        P,
+        y,
+        column_metadata,
+        pool_size,
+        ensemble_size,
+        seed,
+        allow_repeats
+    )
+
+    G, s, y2 = _validate_precomputed_dot_products(G, s, y2, n_models=P.shape[1])
+
+    return _build_greedy_ensemble_from_validated_dots(
+        P,
+        column_metadata,
+        pool_size,
+        effective_pool_size,
+        ensemble_size,
+        seed,
+        allow_repeats,
+        G,
+        s,
+        y2
+    )
+
+
 def find_greedy_ensemble(
     P,
     y,
@@ -297,48 +430,26 @@ def find_greedy_ensemble(
         Shape: (n_samples_dev,).
     """
     P, y, effective_pool_size = _validate_greedy_inputs(
-        P, y, column_metadata, pool_size, ensemble_size, seed, allow_repeats
+        P,
+        y,
+        column_metadata,
+        pool_size,
+        ensemble_size,
+        seed,
+        allow_repeats
     )
 
     G, s, y2 = precompute_dot_products(P, y)
 
-    (
-        selected_columns,
-        weights,
-        selection_counts,
-        actual_ensemble_size,
-        oof_brier_score
-    ) = _greedy_ensemble_selection_from_dots(
+    return _build_greedy_ensemble_from_validated_dots(
+        P,
+        column_metadata,
+        pool_size,
+        effective_pool_size,
+        ensemble_size,
+        seed,
+        allow_repeats,
         G,
         s,
-        y2,
-        n_samples_dev=P.shape[0],
-        pool_size=effective_pool_size,
-        ensemble_size=ensemble_size,
-        seed=seed,
-        allow_repeats=allow_repeats
+        y2
     )
-
-    selected_matrix = P[:, selected_columns]
-    weights_array = np.asarray(weights, dtype=np.float64)
-    oof_probabilities = selected_matrix @ weights_array
-
-    metadata: GreedyMetadata = {
-        "method": "caruana_style_greedy",
-        "pool_size": pool_size,
-        "effective_pool_size": effective_pool_size,
-        "ensemble_size": ensemble_size,
-        "actual_ensemble_size": actual_ensemble_size,
-        "allow_repeats": allow_repeats,
-        "selected_columns": selected_columns,
-        "weights": weights,
-        "selection_counts": selection_counts,
-        "n_unique_models": len(selected_columns),
-        "oof_brier_score": float(oof_brier_score),
-        "models": [
-            dict(column_metadata[column_index])
-            for column_index in selected_columns
-        ]
-    }
-
-    return metadata, oof_probabilities.astype(np.float64)
